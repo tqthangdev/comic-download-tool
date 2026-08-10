@@ -1,0 +1,99 @@
+import sys
+import os
+from pathlib import Path
+
+
+def _get_base_dir() -> Path:
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).parent
+    return Path(__file__).parent
+
+
+def _default_playwright_browsers_path() -> Path:
+    """Path mặc định mà Playwright tự dùng nếu không set biến môi trường."""
+    if sys.platform == "win32":
+        return Path(os.environ["USERPROFILE"]) / "AppData" / "Local" / "ms-playwright"
+    elif sys.platform == "darwin":
+        return Path.home() / "Library" / "Caches" / "ms-playwright"
+    else:
+        return Path.home() / ".cache" / "ms-playwright"
+
+
+def _has_chromium_installed(browsers_dir: Path) -> bool:
+    """Kiểm tra xem trong thư mục ms-playwright đã có bản chromium nào chưa."""
+    if not browsers_dir.exists():
+        return False
+    return any(
+        p.is_dir() and p.name.startswith("chromium")
+        for p in browsers_dir.iterdir()
+    )
+
+
+def _setup_playwright_browsers_path():
+    from core.logger import logger
+    default_path = _default_playwright_browsers_path()
+
+    if _has_chromium_installed(default_path):
+        # Máy đã có sẵn Chromium (cài qua "playwright install" bình thường trước đó)
+        # -> không set biến môi trường, để Playwright tự dùng default path.
+        logger.info(f"[Playwright] Dùng Chromium có sẵn tại: {default_path}")
+        return
+
+    # Chưa có ở default path -> dùng bản portable cạnh exe
+    portable_path = _get_base_dir() / "ms-playwright"
+    os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(portable_path)
+    logger.info(f"[Playwright] Dùng bản portable tại: {portable_path}")
+
+
+_setup_playwright_browsers_path()
+
+# --- Chế độ cài đặt: chạy riêng, không khởi động GUI ---
+if "--install-browsers" in sys.argv:
+    from playwright.__main__ import main as playwright_main
+    from core.logger import logger
+
+    logger.info("Đang tải Chromium, vui lòng đợi (cần kết nối internet)...")
+    sys.argv = ["playwright", "install", "chromium"]
+    try:
+        playwright_main()
+        logger.info("Cài đặt hoàn tất. Bạn có thể đóng cửa sổ này và chạy app.")
+    except SystemExit as e:
+        if e.code not in (0, None):
+            logger.error(f"Cài đặt thất bại, mã lỗi: {e.code}")
+        sys.exit(e.code or 0)
+    sys.exit(0)
+
+# --- Chế độ chạy app bình thường ---
+import asyncio
+import traceback
+
+from PyQt6.QtWidgets import QApplication
+from qasync import QEventLoop
+
+from gui.main_window import MainWindow
+from core.engine import Engine
+
+from core.utils import CONFIG
+
+def main():
+    app = QApplication(sys.argv)
+
+    loop = QEventLoop(app)
+    asyncio.set_event_loop(loop)
+
+    engine = Engine(max_workers=CONFIG["max_workers"])
+    window = MainWindow(engine)
+
+    window.show()
+
+    with loop:
+        loop.run_forever()
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception as e:
+        from core.logger import logger
+        logger.critical("Critical error / crash occurred", exc_info=True)
+        raise
