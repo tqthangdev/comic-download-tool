@@ -10,6 +10,7 @@ from PyQt6.QtWidgets import (
     QCheckBox,
     QLabel,
     QTreeWidget,
+    QHeaderView,
 )
 from PyQt6.QtCore import Qt, QSize, QSettings
 
@@ -31,6 +32,7 @@ class LeftPanel(QWidget):
         super().__init__(parent)
 
         self.settings = settings
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.init_ui()
 
     def init_ui(self):
@@ -90,16 +92,25 @@ class LeftPanel(QWidget):
         self.tree.setObjectName("detail_tree")
         self.tree.setStyleSheet("""
         QWidget#detail_tree {
-            background-color: #f0f0f0;
+            background: transparent;
             border: 1px solid transparent;
         }
         QTreeWidget#detail_tree::item {
-            background-color: #f0f0f0;
-            color: #000;
+            background: transparent;
+            color: #00e5ff;
         }
         """)
-        self.tree.setHeaderLabels(["List chapter:"])
+        self.tree.setHeaderLabels(["Chapter", "Time"])
         self.tree.setHeaderHidden(True)
+        self.tree.header().setStretchLastSection(False)
+        self.tree.header().setSectionResizeMode(
+            0,
+            QHeaderView.ResizeMode.Stretch,
+        )
+        self.tree.header().setSectionResizeMode(
+            1,
+            QHeaderView.ResizeMode.ResizeToContents,
+        )
 
         # ================= ADD QUEUE BUTTON =================
         self.btn_add = QPushButton("Add Queue")
@@ -137,7 +148,7 @@ class LeftPanel(QWidget):
 
         # TITLE
         self.manga_title = QLabel("")
-        self.manga_title.setStyleSheet("font-size:16px; font-weight:bold;")
+        self.manga_title.setStyleSheet("font-size:16px; font-weight:bold; color:#ff9800;")
         self.manga_title.setWordWrap(True)
 
         info_layout.addWidget(self.manga_thumb)
@@ -152,12 +163,12 @@ class LeftPanel(QWidget):
         self.detail_chapter.setObjectName("detail_chapter")
         self.detail_chapter.setStyleSheet("""
         QWidget#detail_chapter {
-            background-color: #f0f0f0;
+            background: transparent;
             border: 1px solid #adadad;
         }
         QHeaderView::section {
-            background-color: #f0f0f0;
-            color: #000;
+            background: transparent;
+            color: #00e5ff;
             border: none;
         }
         """)

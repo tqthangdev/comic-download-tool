@@ -1,5 +1,5 @@
 from PyQt6.QtWidgets import QStyledItemDelegate
-from PyQt6.QtGui import QPainter, QColor, QFontMetrics
+from PyQt6.QtGui import QPainter, QColor, QFontMetrics, QFont
 from PyQt6.QtCore import Qt, QRect
 
 
@@ -62,7 +62,7 @@ class QueueDelegate(QStyledItemDelegate):
             title_rect.width()
         )
 
-        painter.setPen(QColor("black"))
+        painter.setPen(QColor("#e0e0e0"))
         painter.drawText(
             title_rect,
             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
@@ -79,12 +79,27 @@ class QueueDelegate(QStyledItemDelegate):
                 color = "#F44336"
             case "Resume":
                 color = "#4CAF50"
+            case "Paused":
+                color = "#9E9E9E"
             case s if s.startswith("Downloading"):
                 color = "#4CAF50"
             case _:
-                color = "#000000"
+                color = "#e0e0e0"
 
         painter.setPen(QColor(color))
+
+        # Nếu status dài (VD "Downloading...(2/10): 100%") -> co giãn font cho
+        # vừa vùng status thay vì bị cắt mất phần cuối.
+        font = painter.font()
+        if status_rect.width() < metrics.horizontalAdvance(status):
+            shrink = font
+            shrink.setPointSizeF(max(6.0, font.pointSizeF() - 1))
+            while shrink.pointSizeF() > 6.0:
+                if QFontMetrics(shrink).horizontalAdvance(status) <= status_rect.width():
+                    break
+                shrink.setPointSizeF(shrink.pointSizeF() - 0.5)
+            painter.setFont(shrink)
+
         painter.drawText(
             status_rect,
             Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,

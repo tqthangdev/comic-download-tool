@@ -21,6 +21,7 @@ class RightPanel(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.init_ui()
 
     def init_ui(self):
@@ -45,7 +46,7 @@ class RightPanel(QWidget):
         self.queue_list.setObjectName("queue_list")
         self.queue_list.setStyleSheet("""
         QWidget#queue_list {
-            background-color: #f0f0f0;
+            background: transparent;
             border: 1px solid #adadad;
             padding-right: 5px;
         }
