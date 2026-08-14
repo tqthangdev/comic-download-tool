@@ -47,6 +47,14 @@ logs/
 
 downloads/
 
+# Playwright browsers
+
+ms-playwright/
+
+# Command Code (AI assistant session data)
+
+.commandcode/
+
 # Temporary files
 
 tmp/

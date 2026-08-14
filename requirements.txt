@@ -1,0 +1,15 @@
+# Core
+aiohttp
+beautifulsoup4
+lxml
+requests
+
+# GUI
+PyQt6
+qasync
+
+# Browser crawling
+playwright
+
+# Build (chỉ cần khi đóng gói exe, không bắt buộc để chạy app)
+# pyinstaller

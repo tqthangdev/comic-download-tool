@@ -56,6 +56,8 @@ Comic Download Tool
 │   └── error.log           # Application error log
 │
 ├── config.json             # Application configuration
+├── install.py              # Auto installer (venv + deps + Chromium)
+├── requirements.txt        # Python dependencies
 ├── run.py                  # Application entry point
 └── run.spec               # PyInstaller build specification
 ```
@@ -64,20 +66,34 @@ Comic Download Tool
 
 * Python 3.10+
 * Windows / Linux
-* Internet connection
-* Dependencies required by the project
+* Internet connection (required on first run to fetch dependencies and Chromium)
 
-Install dependencies:
+## Installation
+
+The easiest way is to use the built-in auto installer. It creates a virtual
+environment (with a fallback if your system does not support `venv`), installs
+the dependencies from `requirements.txt`, and downloads Chromium for Playwright:
+
+```bash
+python install.py
+```
+
+Options:
+
+| Option                  | Description                                          |
+| ----------------------- | ---------------------------------------------------- |
+| `--skip-browsers`       | Skip downloading Chromium (packages only)            |
+| `--no-venv`             | Install directly into the current environment        |
+
+Or install manually:
 
 ```bash
 pip install -r requirements.txt
+python -m playwright install chromium
 ```
 
-> If `requirements.txt` is not included yet, install the required Python packages used by the project manually or generate the file with:
-
-```bash
-pip freeze > requirements.txt
-```
+> The project now ships `requirements.txt` (without pinned versions), so there
+> is no need to generate one with `pip freeze`.
 
 ## Configuration
 
@@ -123,6 +139,12 @@ On Windows:
 
 ```powershell
 python .\run.py
+```
+
+If Playwright browsers are missing, install them with:
+
+```bash
+python run.py --install-browsers
 ```
 
 ## Extractor System
