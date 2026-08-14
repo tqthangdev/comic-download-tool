@@ -5,8 +5,8 @@ import time
 import requests
 from qasync import asyncSlot
 
-from PyQt6.QtGui import QPixmap
-from PyQt6.QtWidgets import QApplication, QWidget, QHBoxLayout, QMessageBox
+from PyQt6.QtGui import QPixmap, QCursor
+from PyQt6.QtWidgets import QApplication, QWidget, QHBoxLayout, QMessageBox, QPushButton
 from PyQt6.QtCore import QSettings, Qt
 
 from gui.ui_left import LeftPanel
@@ -29,11 +29,16 @@ class MainWindow(QWidget):
             "ComicDownloader"
         )
 
-        self.setWindowTitle("Comic Engine PRO")
+        self.setWindowTitle("Comic Download Tool")
         self.setGeometry(100, 100, 900, 650)
+        self.setStyleSheet("""
+        QWidget {
+            background-color: #1e1e1e;
+            color: #d4d4d4;
+        }
+        """)
 
         self.init_ui()
-        asyncio.ensure_future(self._restore_session())
         self._closing = False
 
     # =========================
@@ -58,7 +63,34 @@ class MainWindow(QWidget):
         self.right.btn_pause.clicked.connect(self.toggle_pause_engine)
         self.engine.progress.connect(self.right.update_progress)
 
+        self._apply_cursors()
         asyncio.ensure_future(self._restore_session())
+
+    def _apply_cursors(self):
+        """Qt Style Sheets không hỗ trợ thuộc tính cursor -> set qua code.
+
+        Hover vào button: pointer. Button disabled: not-allowed (forbidden).
+        """
+        pointer = QCursor(Qt.CursorShape.PointingHandCursor)
+        forbidden = QCursor(Qt.CursorShape.ForbiddenCursor)
+
+        buttons = self.findChildren(QPushButton)
+        for btn in buttons:
+            btn.setCursor(pointer)
+            # cập nhật cursor khi trạng thái enabled/disabled thay đổi
+            btn.installEventFilter(self)
+
+    def eventFilter(self, obj, event):
+        from PyQt6.QtCore import QEvent
+
+        if isinstance(obj, QPushButton) and event.type() == QEvent.Type.EnabledChange:
+            cursor = (
+                QCursor(Qt.CursorShape.ForbiddenCursor)
+                if not obj.isEnabled()
+                else QCursor(Qt.CursorShape.PointingHandCursor)
+            )
+            obj.setCursor(cursor)
+        return super().eventFilter(obj, event)
 
     # =========================
     # PASTE URL (BTN CLICK)
@@ -69,6 +101,16 @@ class MainWindow(QWidget):
         new_url = clipboard.text().strip()
 
         if not new_url:
+            return
+
+        # Clipboard có thể chứa nội dung không phải URL (VD copy nhầm dòng
+        # warning từ console) -> kiểm tra trước khi load.
+        if not new_url.startswith(("http://", "https://")):
+            self._show_message(
+                "Lỗi",
+                f"Clipboard không chứa URL hợp lệ:\n{new_url[:100]}",
+                critical=True
+            )
             return
 
         old_url = self.left.url_input.text().strip()
@@ -138,15 +180,48 @@ class MainWindow(QWidget):
             from PyQt6.QtWidgets import QTreeWidgetItem
 
             for chap in chapters:
-                chap_info = chap["title"] + "\t[" + chap["update_time"] + "]"
-                QTreeWidgetItem(self.left.tree, [chap_info])
+                QTreeWidgetItem(
+                    self.left.tree,
+                    [chap["title"], chap["update_time"]]
+                )
 
             self.left.btn_add.setDisabled(False)
+
+            if not chapters:
+                self._show_message(
+                    "Thông báo",
+                    "Không tìm thấy chapter nào cho truyện này."
+                )
+                self.left.btn_add.setDisabled(True)
+
             self.left.on_loading(False)
 
         except Exception as e:
             self.left.on_loading(False)
             logger.error(f"Error fetching preview/chapters: {e}", exc_info=True)
+
+            # Timeout khi chờ selector chapter thường là do không tìm thấy
+            # danh sách chapter nào trên trang.
+            from playwright.async_api import TimeoutError as PWTimeoutError
+
+            if isinstance(e, (TimeoutError, PWTimeoutError)):
+                self._show_message(
+                    "Thông báo",
+                    "Không tìm thấy chapter nào cho truyện này."
+                )
+            elif "extractor" in str(e).lower():
+                self._show_message(
+                    "Lỗi",
+                    f"Không hỗ trợ website này:\n{url}\n\n"
+                    f"Chi tiết: {e}",
+                    critical=True
+                )
+            else:
+                self._show_message(
+                    "Lỗi",
+                    f"Không thể tải danh sách chapter:\n{e}",
+                    critical=True
+                )
 
     # =========================
     # ADD QUEUE
