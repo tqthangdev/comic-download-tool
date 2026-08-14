@@ -29,6 +29,8 @@ class Downloader:
         if referer:
             headers["Referer"] = referer
 
+        last_error = None
+
         for attempt in range(retry):
             try:
                 async with self._semaphore:  # giới hạn số request đồng thời
@@ -45,13 +47,16 @@ class Downloader:
                             await loop.run_in_executor(None, path.write_bytes, data)
 
                             return True
+                        else:
+                            last_error = f"HTTP {r.status}"
 
             except Exception as e:
+                last_error = f"{type(e).__name__}: {e}"
                 logger.warning(f"Download image attempt {attempt + 1} failed for {url} ({type(e).__name__}): {e}")
 
             await asyncio.sleep(1)
 
-        logger.error(f"Download FAILED for URL: {url}")
+        logger.error(f"Download FAILED for URL: {url} — {last_error}")
         return False
 
     async def download_batch(self, urls, save_path: Path, referer: str = None, progress=None):

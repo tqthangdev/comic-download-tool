@@ -128,8 +128,10 @@ class JobManager:
 
     def get_restorable_jobs(self) -> list[Job]:
         with self._lock:
+            # ORDER BY rowid để giữ đúng thứ tự thêm vào — restore về queue
+            # theo đúng thứ tự queue list.
             rows = self.conn.execute(
-                "SELECT * FROM jobs WHERE status IN ('waiting', 'paused', 'failed', 'running')"
+                "SELECT * FROM jobs WHERE status IN ('waiting', 'paused', 'failed', 'running') ORDER BY rowid"
             ).fetchall()
         return [
             Job(
