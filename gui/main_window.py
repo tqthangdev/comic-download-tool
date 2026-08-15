@@ -36,6 +36,24 @@ class MainWindow(QWidget):
             background-color: #1e1e1e;
             color: #d4d4d4;
         }
+        QPushButton {
+            background-color: #3a3a3a;
+            border: 1px solid #555555;
+            border-radius: 4px;
+            padding: 5px 12px;
+            color: #e0e0e0;
+        }
+        QPushButton:hover {
+            background-color: #4a4a4a;
+        }
+        QPushButton:pressed {
+            background-color: #2f2f2f;
+        }
+        QPushButton:disabled {
+            background-color: #262626;
+            border-color: #3a3a3a;
+            color: #6e6e6e;
+        }
         """)
 
         self.init_ui()
