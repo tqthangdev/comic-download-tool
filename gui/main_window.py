@@ -12,6 +12,7 @@ from PyQt6.QtCore import QSettings, Qt
 from gui.ui_left import LeftPanel
 from gui.ui_right import RightPanel
 from core.logger import logger
+from core.i18n import tr, add_listener
 
 
 class MainWindow(QWidget):
@@ -29,7 +30,12 @@ class MainWindow(QWidget):
             "ComicDownloader"
         )
 
-        self.setWindowTitle("Comic Download Tool")
+        # Đọc ngôn ngữ từ config.json (mặc định vi)
+        from core.i18n import set_lang
+        from core.utils import CONFIG
+        set_lang(CONFIG.get("language", "vi"))
+
+        self.setWindowTitle(tr("app_title"))
         self.setGeometry(100, 100, 900, 650)
         self.setStyleSheet("""
         QWidget {
@@ -53,6 +59,17 @@ class MainWindow(QWidget):
             background-color: #262626;
             border-color: #3a3a3a;
             color: #6e6e6e;
+        }
+        QLineEdit {
+            background-color: #2d2d2d;
+            border: 1px solid #ffffff;
+            border-radius: 4px;
+            padding: 5px 8px;
+            color: #e0e0e0;
+        }
+        QLineEdit:focus {
+            border: 2px solid #4fc3f7;
+            background-color: #333333;
         }
         """)
 
@@ -83,7 +100,14 @@ class MainWindow(QWidget):
         self.engine.progress.connect(self.right.update_progress)
 
         self._apply_cursors()
+        add_listener(self._retranslate)
         asyncio.ensure_future(self._restore_session())
+
+    def _retranslate(self):
+        self.setWindowTitle(tr("app_title"))
+        self.left.retranslate()
+        self.right.retranslate()
+        self._update_pause_button()
 
     def _apply_cursors(self):
         """Qt Style Sheets không hỗ trợ thuộc tính cursor -> set qua code.
@@ -126,8 +150,8 @@ class MainWindow(QWidget):
         # warning từ console) -> kiểm tra trước khi load.
         if not new_url.startswith(("http://", "https://")):
             self._show_message(
-                "Lỗi",
-                f"Clipboard không chứa URL hợp lệ:\n{new_url[:100]}",
+                tr("error"),
+                f"{tr('clipboard_invalid')}:\n{new_url[:100]}",
                 critical=True
             )
             return
@@ -210,8 +234,8 @@ class MainWindow(QWidget):
 
             if not chapters:
                 self._show_message(
-                    "Thông báo",
-                    "Không tìm thấy chapter nào cho truyện này."
+                    tr("notify"),
+                    tr("no_chapters")
                 )
                 self.left.btn_add.setDisabled(True)
 
@@ -227,21 +251,21 @@ class MainWindow(QWidget):
 
             if isinstance(e, (TimeoutError, PWTimeoutError)):
                 self._show_message(
-                    "Lỗi",
-                    f"Không thể tải trang, vui lòng kiểm tra mạng:\n{url}",
+                    tr("error"),
+                    f"{tr('network_error')}:\n{url}",
                     critical=True
                 )
             elif "extractor" in str(e).lower():
                 self._show_message(
-                    "Lỗi",
-                    f"Không hỗ trợ website này:\n{url}\n\n"
-                    f"Chi tiết: {e}",
+                    tr("error"),
+                    f"{tr('extractor_error')}:\n{url}\n\n"
+                    f"{e}",
                     critical=True
                 )
             else:
                 self._show_message(
-                    "Lỗi",
-                    f"Không thể tải danh sách chapter:\n{e}",
+                    tr("error"),
+                    f"{tr('load_chapters_error')}:\n{e}",
                     critical=True
                 )
 
@@ -300,14 +324,14 @@ class MainWindow(QWidget):
 
                 case "already_running":
                     self._show_message(
-                        "Thông báo",
-                        "Truyện đang được tải."
+                        tr("notify"),
+                        tr("already_running")
                     )
 
                 case "already_queued":
                     self._show_message(
-                        "Thông báo",
-                        "Truyện đã có trong hàng đợi."
+                        tr("notify"),
+                        tr("already_queued")
                     )
 
             self._update_pause_button()
@@ -315,7 +339,7 @@ class MainWindow(QWidget):
         except Exception as e:
 
             self._show_message(
-                "Lỗi",
+                tr("error"),
                 str(e),
                 critical=True
             )
@@ -364,8 +388,8 @@ class MainWindow(QWidget):
         if not paths_to_check:
             QMessageBox.warning(
                 self,
-                "Cảnh báo đường dẫn",
-                "Chưa nhập đường dẫn lưu trữ! Vui lòng chọn thư mục trước khi bắt đầu."
+                tr("path_warning_title"),
+                tr("path_empty")
             )
             return False
 
@@ -373,17 +397,17 @@ class MainWindow(QWidget):
             if not path.is_absolute():
                 QMessageBox.warning(
                     self,
-                    "Đường dẫn không hợp lệ",
-                    f"Đường dẫn lưu trữ phải là thư mục tuyệt đối:\n{path}\n\n"
-                    "Vui lòng chọn lại thư mục lưu trữ."
+                    tr("path_invalid_title"),
+                    f"{tr('path_invalid')}:\n{path}\n\n"
+                    f"{tr('pick_folder_title')}."
                 )
                 return False
             if not path.exists():
                 QMessageBox.warning(
                     self,
-                    "Thư mục không tồn tại",
-                    f"Đường dẫn lưu trữ không tồn tại:\n{path}\n\n"
-                    "Vui lòng kiểm tra lại ổ đĩa hoặc chọn thư mục khác."
+                    tr("path_not_found_title"),
+                    f"{tr('path_not_found')}:\n{path}\n\n"
+                    f"{tr('pick_folder_title')}."
                 )
                 return False
 
@@ -396,7 +420,7 @@ class MainWindow(QWidget):
     async def _restore_session(self):
         jobs = await self.engine.restore_session()
         for job in jobs:
-            label = "Resume" if job.current_chap else "Paused"
+            label = tr("status_resume") if job.current_chap else tr("status_paused")
             self.right.update_queue_item(job.url, job, label)
 
     @asyncSlot()
@@ -404,7 +428,7 @@ class MainWindow(QWidget):
         if self.engine.running:
             await self.engine.stop()
             self._mark_queue_paused()
-            self.right.btn_pause.setText("Resume")
+            self.right.btn_pause.setText(tr("resume"))
         else:
             if self.right.queue_list.count() == 0:
                 return
@@ -412,7 +436,7 @@ class MainWindow(QWidget):
                 return
             self._mark_queue_starting()
             await self.engine.start()
-            self.right.btn_pause.setText("Pause")
+            self.right.btn_pause.setText(tr("pause"))
         self._update_pause_button()
 
     # =========================
@@ -424,14 +448,14 @@ class MainWindow(QWidget):
             return
         if self.right.queue_list.count() == 0:
             self._show_message(
-                "Thông báo",
-                "Hàng đợi trống! Hãy thêm truyện vào queue trước khi bắt đầu."
+                tr("notify"),
+                tr("queue_empty")
             )
             return
         if not self._check_save_path_exists():
             return
         self._mark_queue_starting()
-        self.right.btn_pause.setText("Pause")
+        self.right.btn_pause.setText(tr("pause"))
         await self.engine.start()
         self._update_pause_button()
 
@@ -447,13 +471,13 @@ class MainWindow(QWidget):
         )
         if self.engine.running:
             self.right.btn_pause.setEnabled(True)
-            self.right.btn_pause.setText("Pause")
+            self.right.btn_pause.setText(tr("pause"))
         elif has_pending:
             self.right.btn_pause.setEnabled(True)
-            self.right.btn_pause.setText("Resume")
+            self.right.btn_pause.setText(tr("resume"))
         else:
             self.right.btn_pause.setEnabled(False)
-            self.right.btn_pause.setText("Pause")
+            self.right.btn_pause.setText(tr("pause"))
 
     # =========================
     # MARK ALL QUEUE ITEMS AS PAUSED (UI)
@@ -486,20 +510,21 @@ class MainWindow(QWidget):
             return
 
         msg = (
-            "Tiến trình tải đang chạy. Bạn có chắc chắn muốn thoát ứng dụng không?"
+            tr("close_confirm_running")
             if self.engine.running
-            else "Bạn có chắc chắn muốn thoát ứng dụng không?"
+            else tr("close_confirm_idle")
         )
 
-        reply = QMessageBox.question(
-            self,
-            "Xác nhận thoát",
-            msg,
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No
-        )
+        box = QMessageBox(self)
+        box.setWindowTitle(tr("close_confirm_title"))
+        box.setText(msg)
+        box.setIcon(QMessageBox.Icon.Question)
+        btn_yes = box.addButton(tr("yes"), QMessageBox.ButtonRole.YesRole)
+        btn_no = box.addButton(tr("no"), QMessageBox.ButtonRole.NoRole)
+        box.setDefaultButton(btn_no)
+        box.exec()
 
-        if reply != QMessageBox.StandardButton.Yes:
+        if box.clickedButton() != btn_yes:
             event.ignore()
             return
 

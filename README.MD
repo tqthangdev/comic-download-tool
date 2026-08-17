@@ -108,8 +108,9 @@ Example:
     "download_retry": 3,
     "chapter_retry": 2,
     "request_timeout": 30,
-    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36",
-    "default_save_dir": "downloads"
+    "download_thumb": true,
+    "language": "vi",
+    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36"
 }
 ```
 
@@ -122,8 +123,9 @@ Example:
 | `download_retry`           | Number of retries for failed downloads   |
 | `chapter_retry`            | Number of retries for failed chapters    |
 | `request_timeout`          | HTTP request timeout in seconds          |
+| `download_thumb`           | Whether to save thumbnail when downloading |
+| `language`                 | UI language (`vi` or `en`)               |
 | `user_agent`               | HTTP User-Agent used for requests        |
-| `default_save_dir`         | Default directory for downloaded comics  |
 
 Adjust concurrency carefully. A higher value does not always mean faster downloads and may cause unnecessary load on the target website.
 

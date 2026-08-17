@@ -18,10 +18,12 @@ from PyQt6.QtWidgets import (
     QToolButton,
     QRadioButton,
     QButtonGroup,
+    QComboBox,
 )
 from PyQt6.QtCore import Qt, QSize, QSettings
 
 from core.utils import get_resource_path, CONFIG, save_config
+from core.i18n import tr, set_lang, get_lang
 
 
 class LeftPanel(QWidget):
@@ -49,18 +51,15 @@ class LeftPanel(QWidget):
         # ================= URL AREA =================
         url_area = QWidget()
         self.url_input = QLineEdit()
-        self.url_input.setPlaceholderText("Paste comic URL...")
+        self.url_input.setPlaceholderText(tr("url_placeholder"))
         self.url_input.setReadOnly(True)
 
-        self.btn_paste = QPushButton("Paste")
+        self.btn_paste = QPushButton(tr("paste"))
         self.btn_paste.setFixedWidth(80)
 
         url_layout = QHBoxLayout(url_area)
         url_layout.setContentsMargins(0, 0, 0, 0)
         url_layout.setSpacing(6)
-
-        url_label = QLabel("URL")
-        url_layout.addWidget(url_label)
 
         url_layout.addWidget(self.url_input, 1)
         url_layout.addWidget(self.btn_paste)
@@ -71,12 +70,12 @@ class LeftPanel(QWidget):
         settings_layout.setContentsMargins(0, 0, 0, 0)
         settings_layout.setSpacing(6)
 
-        self.auto_queue_cb = QCheckBox("Automatically add to queue")
+        self.auto_queue_cb = QCheckBox(tr("auto_queue"))
         auto_queue_saved = self.settings.value("auto_queue", False, type=bool)
         self.auto_queue_cb.setChecked(auto_queue_saved)
         self.auto_queue_cb.toggled.connect(self.on_auto_queue_toggled)
 
-        self.btn_settings = QPushButton("Settings")
+        self.btn_settings = QPushButton(tr("settings"))
         self.btn_settings.setFixedWidth(80)
         self.btn_settings.clicked.connect(self.open_settings)
 
@@ -87,14 +86,11 @@ class LeftPanel(QWidget):
         path_area = QWidget()
         path_layout = QHBoxLayout(path_area)
 
-        self.btn_folder = QPushButton("Folder")
+        self.btn_folder = QPushButton(tr("folder"))
         self.btn_folder.setFixedWidth(80)
 
         path_layout.setContentsMargins(0, 0, 0, 0)
         path_layout.setSpacing(6)
-
-        path_label = QLabel("Path")
-        path_layout.addWidget(path_label)
 
         self.path_input = QLineEdit()
         default_path = str(Path.home() / "Documents")
@@ -105,7 +101,7 @@ class LeftPanel(QWidget):
         if not saved_path or not Path(saved_path).is_absolute() or not Path(saved_path).exists():
             saved_path = default_path
 
-        self.path_input.setPlaceholderText("Đường dẫn lưu...")
+        self.path_input.setPlaceholderText(tr("path_placeholder"))
         self.path_input.setText(saved_path)
         # Luôn cho sửa path, và mỗi lần đổi (pick folder / gõ tay) là lưu lại
         self.path_input.editingFinished.connect(self._save_path)
@@ -139,7 +135,7 @@ class LeftPanel(QWidget):
         )
 
         # ================= ADD QUEUE BUTTON =================
-        self.btn_add = QPushButton("Add Queue")
+        self.btn_add = QPushButton(tr("add_queue"))
         self.btn_add.setDisabled(True)
 
         # ================= HEADER PANEL =================
@@ -204,7 +200,7 @@ class LeftPanel(QWidget):
         detail_layout.addWidget(self.tree)
 
         # ================= ASSEMBLE LEFT PANEL =================
-        layout.addWidget(QLabel(""))
+        layout.addWidget(QLabel(" "))
         layout.addWidget(url_area)
         layout.addWidget(path_area)
         layout.addWidget(settings_row)
@@ -229,6 +225,18 @@ class LeftPanel(QWidget):
         self.settings.setValue("auto_queue", checked)
 
     # =========================
+    # CẬP NHẬT TEXT KHI ĐỔI NGÔN NGỮ
+    # =========================
+    def retranslate(self):
+        self.url_input.setPlaceholderText(tr("url_placeholder"))
+        self.path_input.setPlaceholderText(tr("path_placeholder"))
+        self.btn_paste.setText(tr("paste"))
+        self.btn_folder.setText(tr("folder"))
+        self.btn_settings.setText(tr("settings"))
+        self.btn_add.setText(tr("add_queue"))
+        self.auto_queue_cb.setText(tr("auto_queue"))
+
+    # =========================
     # SETTINGS MODAL (đọc/ghi config.json)
     # =========================
     def open_settings(self):
@@ -241,7 +249,7 @@ class LeftPanel(QWidget):
     def pick_folder(self):
         from PyQt6.QtWidgets import QFileDialog
 
-        folder = QFileDialog.getExistingDirectory(self, "Chọn folder")
+        folder = QFileDialog.getExistingDirectory(self, tr("pick_folder_title"))
         if folder:
             self.path_input.setText(folder)
             self._save_path()
@@ -271,54 +279,18 @@ class LeftPanel(QWidget):
 class _ConfigDialog(QDialog):
     """Modal chỉnh các giá trị trong config.json."""
 
-    # (nhãn, key, kiểu, mô tả chi tiết + khuyến nghị)
+    # (i18n key nhãn, key config, kiểu, i18n key mô tả)
     FIELDS = [
-        (
-            "Số truyện tải song song (worker)",
-            "max_workers",
-            int,
-            "Số truyện được xử lý cùng lúc.\n\n"
-            "Khuyến nghị: 3-5. Đặt quá cao (10+) khiến máy lag, "
-            "chiếm nhiều RAM/CPU và dễ bị website chặn.",
-        ),
-        (
-            "Tổng số ảnh tải đồng thời",
-            "max_concurrent_downloads",
-            int,
-            "Số request tải ảnh tối đa cùng lúc trên toàn app "
-            "(chia sẻ giữa mọi truyện đang tải).\n\n"
-            "Khuyến nghị: 4-8. Quá cao làm nghẽn băng thông, "
-            "ảnh lỗi nhiều và có thể bị chặn IP.",
-        ),
-        (
-            "Số lần thử lại khi tải ảnh lỗi",
-            "download_retry",
-            int,
-            "Khi tải 1 ảnh thất bại, tự động thử lại bao nhiêu lần.\n\n"
-            "Khuyến nghị: 2-3. Quá cao làm chậm cả queue khi ảnh "
-            "thực sự hỏng (thử lại vô ích).",
-        ),
-        (
-            "Số lần thử lại khi lấy danh sách chapter lỗi",
-            "chapter_retry",
-            int,
-            "Khi không tải được danh sách chapter (mạng chập chờn), "
-            "thử lại bao nhiêu lần.\n\n"
-            "Khuyến nghị: 2. Quá cao khiến chờ lâu trước khi báo lỗi.",
-        ),
-        (
-            "Thời gian chờ tải trang (giây)",
-            "request_timeout",
-            int,
-            "Thời gian tối đa chờ trang web phản hồi trước khi báo lỗi.\n\n"
-            "Khuyến nghị: 30. Quá thấp dễ báo lỗi khi mạng chậm, "
-            "quá cao làm treo lâu khi trang không vào được.",
-        ),
+        ("field_max_workers", "max_workers", int, "field_max_workers_desc"),
+        ("field_max_concurrent", "max_concurrent_downloads", int, "field_max_concurrent_desc"),
+        ("field_download_retry", "download_retry", int, "field_download_retry_desc"),
+        ("field_chapter_retry", "chapter_retry", int, "field_chapter_retry_desc"),
+        ("field_timeout", "request_timeout", int, "field_timeout_desc"),
     ]
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Settings")
+        self.setWindowTitle(tr("settings_title"))
         self.setModal(True)
         self.setMinimumWidth(480)
 
@@ -327,7 +299,29 @@ class _ConfigDialog(QDialog):
         layout = QVBoxLayout(self)
         form = QFormLayout()
 
-        for label, key, cast, desc in self.FIELDS:
+        # ===== COMBOBOX: NGÔN NGỮ =====
+        self.cb_lang = QComboBox()
+        self.cb_lang.addItem(tr("lang_vi"), "vi")
+        self.cb_lang.addItem(tr("lang_en"), "en")
+        idx = self.cb_lang.findData(get_lang())
+        self.cb_lang.setCurrentIndex(idx if idx >= 0 else 0)
+
+        # Bọc trong row có stretch để width khớp với các text box phía dưới
+        # (các row khác có nút "?" 24px chiếm cuối hàng -> chừa đúng 24px)
+        lang_row = QWidget()
+        lang_layout = QHBoxLayout(lang_row)
+        lang_layout.setContentsMargins(0, 0, 0, 0)
+        lang_layout.setSpacing(4)
+        lang_layout.addWidget(self.cb_lang, 1)
+        lang_spacer = QWidget()
+        lang_spacer.setFixedWidth(24)
+        lang_layout.addWidget(lang_spacer)
+
+        form.addRow(tr("language_label"), lang_row)
+
+        for label_key, key, cast, desc_key in self.FIELDS:
+            label = tr(label_key)
+            desc = tr(desc_key)
             value = CONFIG.get(key, "")
 
             if cast is int:
@@ -370,8 +364,8 @@ class _ConfigDialog(QDialog):
         thumb_layout.setContentsMargins(0, 0, 0, 0)
         thumb_layout.setSpacing(4)
 
-        self.rb_thumb_yes = QRadioButton("Có")
-        self.rb_thumb_no = QRadioButton("Không")
+        self.rb_thumb_yes = QRadioButton(tr("thumb_yes"))
+        self.rb_thumb_no = QRadioButton(tr("thumb_no"))
         self._thumb_group = QButtonGroup(self)
         self._thumb_group.addButton(self.rb_thumb_yes)
         self._thumb_group.addButton(self.rb_thumb_no)
@@ -391,28 +385,26 @@ class _ConfigDialog(QDialog):
         btn_thumb_help.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_thumb_help.clicked.connect(
             lambda _=False: _HelpDialog(
-                "Lưu thumbnail khi tải",
-                "Có: lưu ảnh bìa (thumb.jpg) vào thư mục mỗi truyện khi tải.\n\n"
-                "Không: bỏ qua ảnh bìa, chỉ tải các chapter — tiết kiệm băng thông "
-                "và 1 request ảnh mỗi truyện.\n\nKhuyến nghị: Có.",
+                tr("thumb_help_title"),
+                tr("thumb_help_desc"),
                 self,
             ).exec()
         )
 
         thumb_layout.addWidget(btn_thumb_help)
 
-        form.addRow("Lưu thumbnail khi tải", thumb_row)
+        form.addRow(tr("save_thumb"), thumb_row)
 
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
-        )
-        buttons.accepted.connect(self._on_save)
-        buttons.rejected.connect(self.reject)
+        buttons = QDialogButtonBox()
+        btn_apply = buttons.addButton(tr("apply"), QDialogButtonBox.ButtonRole.AcceptRole)
+        btn_cancel = buttons.addButton(tr("cancel"), QDialogButtonBox.ButtonRole.RejectRole)
+        btn_apply.clicked.connect(self._on_apply)
+        btn_cancel.clicked.connect(self.reject)
         layout.addWidget(buttons)
 
-    def _on_save(self):
+    def _on_apply(self):
         new_config = dict(CONFIG)
-        for label, key, cast, desc in self.FIELDS:
+        for label_key, key, cast, desc_key in self.FIELDS:
             widget = self._inputs[key]
             if cast is int:
                 new_config[key] = widget.value()
@@ -422,19 +414,21 @@ class _ConfigDialog(QDialog):
                     new_config[key] = text
 
         new_config["download_thumb"] = self.rb_thumb_yes.isChecked()
+        new_config["language"] = self.cb_lang.currentData()
 
         if save_config(new_config):
-            # Cập nhật CONFIG trong bộ nhớ để app dùng ngay
+            # Cập nhật CONFIG + ngôn ngữ trong bộ nhớ để áp dụng ngay
             CONFIG.clear()
             CONFIG.update(new_config)
+            set_lang(new_config["language"])
             self.accept()
         else:
             from PyQt6.QtWidgets import QMessageBox
 
             QMessageBox.critical(
                 self,
-                "Lỗi",
-                "Không thể ghi config.json. Kiểm tra quyền thư mục."
+                tr("error"),
+                tr("save_error")
             )
 
 
@@ -443,7 +437,7 @@ class _HelpDialog(QDialog):
 
     def __init__(self, title: str, description: str, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Chi tiết option")
+        self.setWindowTitle(tr("settings_help_title"))
         self.setModal(True)
         self.setMinimumWidth(400)
 
@@ -459,8 +453,9 @@ class _HelpDialog(QDialog):
             Qt.TextInteractionFlag.TextSelectableByMouse
         )
 
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok)
-        buttons.accepted.connect(self.accept)
+        buttons = QDialogButtonBox()
+        btn_ok = buttons.addButton(tr("ok"), QDialogButtonBox.ButtonRole.AcceptRole)
+        btn_ok.clicked.connect(self.accept)
 
         layout.addWidget(title_label)
         layout.addWidget(desc_label)

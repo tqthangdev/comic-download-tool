@@ -67,11 +67,11 @@ DEFAULT_CONFIG = {
     "chapter_retry": 2,
     "request_timeout": 30,
     "download_thumb": True,
+    "language": "vi",
     "user_agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
         "AppleWebKit/537.36 Chrome/120 Safari/537.36"
     ),
-    "default_save_dir": "downloads",
 }
 
 
@@ -89,9 +89,23 @@ def load_config() -> dict:
             with open(config_path, "r", encoding="utf-8") as f:
                 user_config = json.load(f)
             config.update({k: v for k, v in user_config.items() if v not in (None, "")})
+            # File thiếu field nào (VD thêm field mới sau này) -> bổ sung cho đủ
+            if set(DEFAULT_CONFIG) - set(user_config):
+                try:
+                    with open(config_path, "w", encoding="utf-8") as f:
+                        json.dump(config, f, indent=4, ensure_ascii=False)
+                except Exception as e:
+                    from core.logger import logger
+                    logger.error(f"[config] Không ghi bổ sung field mặc định: {e}")
         except Exception as e:
             from core.logger import logger
             logger.error(f"[config] Lỗi đọc config.json, dùng mặc định: {e}")
+            # File hỏng -> ghi đè lại file đầy đủ field mặc định
+            try:
+                with open(config_path, "w", encoding="utf-8") as f:
+                    json.dump(config, f, indent=4, ensure_ascii=False)
+            except Exception:
+                pass
     else:
         # chưa có file -> tạo file mẫu với giá trị mặc định để người dùng dễ chỉnh sau
         try:

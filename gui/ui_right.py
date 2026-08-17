@@ -10,6 +10,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt
 
 from gui.queue_delegate import QueueDelegate
+from core.i18n import tr
 
 
 class RightPanel(QWidget):
@@ -29,9 +30,9 @@ class RightPanel(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
 
         # ================= BUTTON ROW (phía trên) =================
-        self.btn_start = QPushButton("Start")
-        self.btn_pause = QPushButton("Pause")
-        self.btn_clear = QPushButton("Clear Done")
+        self.btn_start = QPushButton(tr("start"))
+        self.btn_pause = QPushButton(tr("pause"))
+        self.btn_clear = QPushButton(tr("clear_done"))
 
         btn_row = QHBoxLayout()
         btn_row.setContentsMargins(0, 0, 0, 0)
@@ -54,11 +55,18 @@ class RightPanel(QWidget):
         self.queue_list.setItemDelegate(QueueDelegate())
         self.queue_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
-        layout.addWidget(QLabel("Queue"))
+        self.queue_label = QLabel(tr("queue"))
+        layout.addWidget(self.queue_label)
         layout.addLayout(btn_row)
         layout.addWidget(self.queue_list)
 
         self.btn_clear.clicked.connect(self.clear_done)
+
+    def retranslate(self):
+        self.btn_start.setText(tr("start"))
+        self.btn_pause.setText(tr("pause"))
+        self.btn_clear.setText(tr("clear_done"))
+        self.queue_label.setText(tr("queue"))
 
     def exists_in_queue(self, url):
         result = {"exists": False, "data": None}
