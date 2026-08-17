@@ -52,15 +52,13 @@ class LeftPanel(QWidget):
         url_layout.setContentsMargins(0, 0, 0, 0)
         url_layout.setSpacing(6)
 
+        url_label = QLabel("URL")
+        url_layout.addWidget(url_label)
+
         url_layout.addWidget(self.url_input, 1)
         url_layout.addWidget(self.btn_paste)
 
         # ================= CHECKBOX =================
-        self.remember_path_cb = QCheckBox("Use this path by default")
-        remember_path_saved = self.settings.value("remember_path", True, type=bool)
-        self.remember_path_cb.setChecked(remember_path_saved)
-        self.remember_path_cb.toggled.connect(self.on_remember_path)
-
         self.auto_queue_cb = QCheckBox("Automatically add to queue")
         auto_queue_saved = self.settings.value("auto_queue", False, type=bool)
         self.auto_queue_cb.setChecked(auto_queue_saved)
@@ -72,17 +70,26 @@ class LeftPanel(QWidget):
 
         self.btn_folder = QPushButton("Folder")
         self.btn_folder.setFixedWidth(80)
-        self.btn_folder.setDisabled(self.remember_path_cb.isChecked())
 
         path_layout.setContentsMargins(0, 0, 0, 0)
         path_layout.setSpacing(6)
 
+        path_label = QLabel("Path")
+        path_layout.addWidget(path_label)
+
         self.path_input = QLineEdit()
-        default_path = self.settings.value("save_path", str(Path.home() / "Documents"))
+        default_path = str(Path.home() / "Documents")
+        saved_path = self.settings.value("save_path", "", type=str)
+
+        # Path lưu từ lần chạy trước có thể là của máy khác (VD Windows E:\...)
+        # hoặc ổ đĩa đã ngắt kết nối -> fallback về thư mục mặc định.
+        if not saved_path or not Path(saved_path).is_absolute() or not Path(saved_path).exists():
+            saved_path = default_path
 
         self.path_input.setPlaceholderText("Đường dẫn lưu...")
-        self.path_input.setText(default_path)
-        self.path_input.setEnabled(not self.remember_path_cb.isChecked())
+        self.path_input.setText(saved_path)
+        # Luôn cho sửa path, và mỗi lần đổi (pick folder / gõ tay) là lưu lại
+        self.path_input.editingFinished.connect(self._save_path)
 
         path_layout.addWidget(self.path_input, 1)
         path_layout.addWidget(self.btn_folder)
@@ -178,10 +185,9 @@ class LeftPanel(QWidget):
         detail_layout.addWidget(self.tree)
 
         # ================= ASSEMBLE LEFT PANEL =================
-        layout.addWidget(QLabel("URL"))
+        layout.addWidget(QLabel(""))
         layout.addWidget(url_area)
         layout.addWidget(path_area)
-        layout.addWidget(self.remember_path_cb)
         layout.addWidget(self.auto_queue_cb)
         layout.addWidget(self.btn_add)
         layout.addWidget(self.detail_chapter)
@@ -190,16 +196,12 @@ class LeftPanel(QWidget):
         self.btn_folder.clicked.connect(self.pick_folder)
 
     # =========================
-    # checkbox "Use this path by default"
+    # LƯU PATH ĐÃ CHỌN (cho lần chạy sau)
     # =========================
-    def on_remember_path(self, checked):
-        self.path_input.setEnabled(not checked)
-        self.btn_folder.setDisabled(checked)
-
-        self.settings.setValue("remember_path", checked)  # <-- thêm dòng này
-
-        if checked:
-            self.settings.setValue("save_path", self.path_input.text())
+    def _save_path(self):
+        path = self.path_input.text().strip()
+        if path:
+            self.settings.setValue("save_path", path)
 
     # =========================
     # checkbox "Automatically add to queue"
@@ -216,6 +218,7 @@ class LeftPanel(QWidget):
         folder = QFileDialog.getExistingDirectory(self, "Chọn folder")
         if folder:
             self.path_input.setText(folder)
+            self._save_path()
 
     # =========================
     # SHOW / HIDE LOADING

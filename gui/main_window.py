@@ -370,26 +370,22 @@ class MainWindow(QWidget):
             return False
 
         for path in paths_to_check:
+            if not path.is_absolute():
+                QMessageBox.warning(
+                    self,
+                    "Đường dẫn không hợp lệ",
+                    f"Đường dẫn lưu trữ phải là thư mục tuyệt đối:\n{path}\n\n"
+                    "Vui lòng chọn lại thư mục lưu trữ."
+                )
+                return False
             if not path.exists():
-                reply = QMessageBox.question(
+                QMessageBox.warning(
                     self,
                     "Thư mục không tồn tại",
-                    f"Đường dẫn lưu trữ sau không tồn tại:\n{path}\n\nBạn có muốn tự động tạo thư mục này không?",
-                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                    QMessageBox.StandardButton.Yes
+                    f"Đường dẫn lưu trữ không tồn tại:\n{path}\n\n"
+                    "Vui lòng kiểm tra lại ổ đĩa hoặc chọn thư mục khác."
                 )
-                if reply == QMessageBox.StandardButton.Yes:
-                    try:
-                        path.mkdir(parents=True, exist_ok=True)
-                    except Exception as e:
-                        QMessageBox.critical(
-                            self,
-                            "Lỗi tạo thư mục",
-                            f"Không thể tạo thư mục lưu trữ:\n{path}\nChi tiết: {e}"
-                        )
-                        return False
-                else:
-                    return False
+                return False
 
         return True
 
@@ -424,7 +420,13 @@ class MainWindow(QWidget):
     # =========================
     @asyncSlot()
     async def start_engine(self):
-        if self.engine.running or self.right.queue_list.count() == 0:
+        if self.engine.running:
+            return
+        if self.right.queue_list.count() == 0:
+            self._show_message(
+                "Thông báo",
+                "Hàng đợi trống! Hãy thêm truyện vào queue trước khi bắt đầu."
+            )
             return
         if not self._check_save_path_exists():
             return
