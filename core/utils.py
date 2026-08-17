@@ -103,4 +103,18 @@ def load_config() -> dict:
     return config
 
 
+def save_config(config: dict) -> bool:
+    """Ghi config hiện tại xuống config.json (cạnh exe/base dir).
+    Trả về True nếu ghi thành công."""
+    config_path = get_base_dir() / "config.json"
+    try:
+        with open(config_path, "w", encoding="utf-8") as f:
+            json.dump(config, f, indent=4, ensure_ascii=False)
+        return True
+    except Exception as e:
+        from core.logger import logger
+        logger.error(f"[config] Không ghi được config.json: {e}")
+        return False
+
+
 CONFIG = load_config()
