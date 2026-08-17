@@ -7,7 +7,7 @@ from PyQt6.QtCore import QObject, pyqtSignal
 from core.crawler import Crawler
 from core.downloader import Downloader
 from core.job_manager import Job, JobManager
-from core.utils import safe_filename
+from core.utils import safe_filename, CONFIG
 from core.logger import logger
 
 
@@ -231,6 +231,9 @@ class Engine(QObject):
 
     async def _download_thumb(self, job, data):
         """Tải ảnh bìa (thumbnail) của job vào job.save_path/thumb.jpg."""
+        if not CONFIG.get("download_thumb", True):
+            return
+
         thumb_url = data.get("thumb")
         if not thumb_url:
             return

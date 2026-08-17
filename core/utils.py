@@ -66,6 +66,7 @@ DEFAULT_CONFIG = {
     "download_retry": 3,
     "chapter_retry": 2,
     "request_timeout": 30,
+    "download_thumb": True,
     "user_agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
         "AppleWebKit/537.36 Chrome/120 Safari/537.36"

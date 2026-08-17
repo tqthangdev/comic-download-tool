@@ -16,6 +16,8 @@ from PyQt6.QtWidgets import (
     QDialogButtonBox,
     QSpinBox,
     QToolButton,
+    QRadioButton,
+    QButtonGroup,
 )
 from PyQt6.QtCore import Qt, QSize, QSettings
 
@@ -362,6 +364,45 @@ class _ConfigDialog(QDialog):
 
         layout.addLayout(form)
 
+        # ===== RADIO: LƯU THUMBNAIL KHI TẢI =====
+        thumb_row = QWidget()
+        thumb_layout = QHBoxLayout(thumb_row)
+        thumb_layout.setContentsMargins(0, 0, 0, 0)
+        thumb_layout.setSpacing(4)
+
+        self.rb_thumb_yes = QRadioButton("Có")
+        self.rb_thumb_no = QRadioButton("Không")
+        self._thumb_group = QButtonGroup(self)
+        self._thumb_group.addButton(self.rb_thumb_yes)
+        self._thumb_group.addButton(self.rb_thumb_no)
+
+        download_thumb = CONFIG.get("download_thumb", True)
+        (self.rb_thumb_yes if download_thumb else self.rb_thumb_no).setChecked(True)
+
+        thumb_layout.addWidget(self.rb_thumb_yes)
+        thumb_layout.addSpacing(24)
+        thumb_layout.addWidget(self.rb_thumb_no)
+        thumb_layout.addStretch()
+
+        btn_thumb_help = QToolButton()
+        btn_thumb_help.setText("?")
+        btn_thumb_help.setFixedSize(24, 24)
+        btn_thumb_help.setAutoRaise(True)
+        btn_thumb_help.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_thumb_help.clicked.connect(
+            lambda _=False: _HelpDialog(
+                "Lưu thumbnail khi tải",
+                "Có: lưu ảnh bìa (thumb.jpg) vào thư mục mỗi truyện khi tải.\n\n"
+                "Không: bỏ qua ảnh bìa, chỉ tải các chapter — tiết kiệm băng thông "
+                "và 1 request ảnh mỗi truyện.\n\nKhuyến nghị: Có.",
+                self,
+            ).exec()
+        )
+
+        thumb_layout.addWidget(btn_thumb_help)
+
+        form.addRow("Lưu thumbnail khi tải", thumb_row)
+
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
         )
@@ -379,6 +420,8 @@ class _ConfigDialog(QDialog):
                 text = widget.text().strip()
                 if text:
                     new_config[key] = text
+
+        new_config["download_thumb"] = self.rb_thumb_yes.isChecked()
 
         if save_config(new_config):
             # Cập nhật CONFIG trong bộ nhớ để app dùng ngay
