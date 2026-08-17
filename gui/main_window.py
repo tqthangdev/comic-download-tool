@@ -58,6 +58,7 @@ class MainWindow(QWidget):
 
         self.init_ui()
         self._closing = False
+        self._update_pause_button()
 
     # =========================
     # UI GIỮ NGUYÊN 2 CỘT
@@ -178,7 +179,9 @@ class MainWindow(QWidget):
             # SET THUMB (150x200)
             # =========================
             try:
-                img = requests.get(thumb, timeout=5).content
+                # Chạy trong thread để không chặn event loop (gif loading xoay liên tục)
+                resp = await asyncio.to_thread(requests.get, thumb, timeout=5)
+                img = resp.content
 
                 pixmap = QPixmap()
                 pixmap.loadFromData(img)
@@ -218,14 +221,15 @@ class MainWindow(QWidget):
             self.left.on_loading(False)
             logger.error(f"Error fetching preview/chapters: {e}", exc_info=True)
 
-            # Timeout khi chờ selector chapter thường là do không tìm thấy
-            # danh sách chapter nào trên trang.
+            # Timeout ở đây là do mạng yếu/trang không tải được
+            # (trường hợp không có chapter đã được get_chapters xử lý riêng).
             from playwright.async_api import TimeoutError as PWTimeoutError
 
             if isinstance(e, (TimeoutError, PWTimeoutError)):
                 self._show_message(
-                    "Thông báo",
-                    "Không tìm thấy chapter nào cho truyện này."
+                    "Lỗi",
+                    f"Không thể tải trang, vui lòng kiểm tra mạng:\n{url}",
+                    critical=True
                 )
             elif "extractor" in str(e).lower():
                 self._show_message(
@@ -305,6 +309,8 @@ class MainWindow(QWidget):
                         "Thông báo",
                         "Truyện đã có trong hàng đợi."
                     )
+
+            self._update_pause_button()
 
         except Exception as e:
 
@@ -411,6 +417,7 @@ class MainWindow(QWidget):
             self._mark_queue_starting()
             await self.engine.start()
             self.right.btn_pause.setText("Pause")
+        self._update_pause_button()
 
     # =========================
     # ENGINE CONTROL
@@ -424,6 +431,27 @@ class MainWindow(QWidget):
         self._mark_queue_starting()
         self.right.btn_pause.setText("Pause")
         await self.engine.start()
+        self._update_pause_button()
+
+    # =========================
+    # PAUSE BUTTON STATE
+    # =========================
+    def _update_pause_button(self):
+        """Đồng bộ trạng thái nút Pause với engine + queue."""
+        has_pending = any(
+            self.right.queue_list.item(i).data(Qt.ItemDataRole.UserRole)["status"]
+            not in ("Done", "Failed")
+            for i in range(self.right.queue_list.count())
+        )
+        if self.engine.running:
+            self.right.btn_pause.setEnabled(True)
+            self.right.btn_pause.setText("Pause")
+        elif has_pending:
+            self.right.btn_pause.setEnabled(True)
+            self.right.btn_pause.setText("Resume")
+        else:
+            self.right.btn_pause.setEnabled(False)
+            self.right.btn_pause.setText("Pause")
 
     # =========================
     # MARK ALL QUEUE ITEMS AS PAUSED (UI)

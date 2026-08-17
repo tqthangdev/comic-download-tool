@@ -62,8 +62,16 @@ class Crawler:
                     page = self._chapters_page
 
                     await page.goto(url, wait_until="commit", timeout=CONFIG["request_timeout"] * 1000)
-                    for sel in extractor.wait_selectors:
-                        await page.wait_for_selector(sel, timeout=(CONFIG["request_timeout"] / 2) * 1000)
+                    # Chờ title selector xác nhận trang đã render (mạng yếu timeout ở đây)
+                    if extractor.title_selector:
+                        await page.wait_for_selector(
+                            extractor.title_selector,
+                            timeout=(CONFIG["request_timeout"] / 2) * 1000,
+                        )
+                    # Kiểm tra chapter NGAY, không chờ: không có selector chapter
+                    # nghĩa là truyện không có chapter -> báo liền, không retry.
+                    if not await page.query_selector(extractor.chapter_row_selector):
+                        return {"title": "", "thumb": "", "chapters": []}
 
                     data = await extractor.extract(page)
                     return data
