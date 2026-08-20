@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from core.utils import DATA_DIR
 
-DB_PATH = DATA_DIR / "jobs.db"
+DB_PATH = DATA_DIR / "jobs1.db"
 
 
 @dataclass

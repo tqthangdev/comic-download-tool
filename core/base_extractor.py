@@ -12,7 +12,7 @@ class BaseExtractor(ABC):
     title_selector: str = None
     thumb_selector: str = None
     chapter_row_selector: str = None
-    chapter_time_selector: str = None
+    update_time_selector: str = None
 
     image_selector: str = None
 
@@ -24,14 +24,17 @@ class BaseExtractor(ABC):
         raise NotImplementedError
 
     def parse_images(self, html: str) -> List[str]:
-        """Mặc định dùng image_selector. Site nào cần logic khác (data-src, regex...)
-        thì override hẳn method này, không cần set image_selector."""
+        """Mặc định dùng image_selector. Ưu tiên data-src (lazy-load), fallback src.
+        Site nào cần logic khác (regex...) thì override hẳn method này."""
         if not self.image_selector:
             raise NotImplementedError(
                 f"{self.__class__.__name__} chưa khai báo image_selector hoặc chưa override parse_images()"
             )
         soup = BeautifulSoup(html, "lxml")
-        return [
-            img["src"] for img in soup.select(self.image_selector)
-            if img.get("src", "").startswith("http")
-        ]
+        urls = []
+        for img in soup.select(self.image_selector):
+            url = img.get("data-src") or img.get("data-original") or img.get("src") or ""
+            url = url.strip()
+            if url.startswith("http"):
+                urls.append(url)
+        return urls

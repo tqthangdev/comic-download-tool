@@ -8,6 +8,7 @@ from core.crawler import Crawler
 from core.downloader import Downloader
 from core.job_manager import Job, JobManager
 from core.utils import safe_filename, CONFIG
+from extractors import get_extractor
 from core.logger import logger
 
 
@@ -147,49 +148,10 @@ class Engine(QObject):
     async def crawl_job(self, job):
         return await self.crawler.get_chapters(job.url)
 
-    async def download_job_old(self, job, data) -> bool:
-        """Trả về True nếu có ít nhất 1 ảnh lỗi vĩnh viễn trong toàn bộ job."""
-        await self._download_thumb(job, data)
-
-        chapters = list(reversed(data["chapters"]))
-        total_chap = len(chapters)
-        start_index = job.current_chap or 1
-        has_failed = False
-
-        for chap_index, chap in enumerate(chapters, 1):
-            if chap_index < start_index:
-                continue
-
-            job.current_chap = chap_index
-            await self.db.aupdate_current_chap(job.url, chap_index)
-
-            imgs = await self._extract_images_with_retry(chap["url"])
-            chap_path = job.save_path / safe_filename(chap["title"])
-
-            if self.verify_chapter(chap_path, len(imgs)):
-                if self.running:
-                    overall_percent = chap_index / total_chap * 100
-                    self.progress.emit(job.title, f"Downloading {overall_percent:.0f}%")
-                continue
-
-            def progress_callback(current, total, chap_index=chap_index):
-                if not self.running:
-                    return
-                chap_progress = (current / total) if total else 0
-                overall_percent = (chap_index - 1 + chap_progress) / total_chap * 100
-                self.progress.emit(job.title, f"Downloading {overall_percent:.0f}%")
-
-            failed_urls = await self.downloader.download_batch(imgs, chap_path, progress=progress_callback)
-
-            if failed_urls:
-                has_failed = True
-                logger.error(f"[{job.title}] Chapter {chap['title']}: {len(failed_urls)} ảnh lỗi: {failed_urls}")
-
-        return has_failed
-
     async def download_job(self, job, data) -> bool:
         """Trả về True nếu có ít nhất 1 ảnh lỗi vĩnh viễn trong toàn bộ job."""
         await self._download_thumb(job, data)
+        referer = get_extractor(job.url).referer
 
         chapters = list(reversed(data["chapters"]))
         total_chap = len(chapters)
@@ -221,7 +183,7 @@ class Engine(QObject):
                     job.title, f"Downloading...({chap_index}/{total_chap}): {chap_percent:.0f}%"
                 )
 
-            failed_urls = await self.downloader.download_batch(imgs, chap_path, progress=progress_callback)
+            failed_urls = await self.downloader.download_batch(imgs, chap_path, referer=referer, progress=progress_callback)
 
             if failed_urls:
                 has_failed = True
@@ -244,7 +206,8 @@ class Engine(QObject):
         if thumb_path.exists() and any(thumb_path.iterdir()):
             return
 
-        failed_urls = await self.downloader.download_batch([thumb_url], thumb_path)
+        referer = get_extractor(job.url).referer
+        failed_urls = await self.downloader.download_batch([thumb_url], thumb_path, referer=referer)
 
         if failed_urls:
             logger.error(f"[{job.title}] Lỗi tải thumbnail: {thumb_url}")

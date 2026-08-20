@@ -1,36 +1,34 @@
-import importlib
-import pkgutil
+import json
 from pathlib import Path
 from core.base_extractor import BaseExtractor
+from extractors.base import ConfigExtractor
 
 EXTRACTORS = []
+
+
+def _config_path() -> Path:
+    return Path(__file__).resolve().parent.parent / "extractor.json"
 
 
 def load_extractors():
     global EXTRACTORS
     EXTRACTORS.clear()
 
-    package_dir = Path(__file__).parent
-    for _, module_name, is_pkg in pkgutil.iter_modules([str(package_dir)]):
-        if module_name in ("registry", "base") or is_pkg:
-            continue
+    path = _config_path()
+    if not path.exists():
+        return
 
-        try:
-            module = importlib.import_module(f"extractors.{module_name}")
-            for attr_name in dir(module):
-                attr = getattr(module, attr_name)
-                if (
-                    isinstance(attr, type)
-                    and issubclass(attr, BaseExtractor)
-                    and attr is not BaseExtractor
-                    and getattr(attr, "__module__", None) == module.__name__
-                ):
-                    instance = attr()
-                    if not any(type(e) is type(instance) for e in EXTRACTORS):
-                        EXTRACTORS.append(instance)
-        except Exception as e:
-            from core.logger import logger
-            logger.error(f"[Registry] Lỗi khi load extractor '{module_name}': {e}")
+    try:
+        configs = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as e:
+        from core.logger import logger
+        logger.error(f"[Registry] Lỗi đọc extractor.json: {e}")
+        return
+
+    for cfg in configs:
+        if not isinstance(cfg, dict) or not cfg.get("domains"):
+            continue
+        EXTRACTORS.append(ConfigExtractor(cfg))
 
 
 load_extractors()
