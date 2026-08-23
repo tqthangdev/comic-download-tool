@@ -1,11 +1,12 @@
 import asyncio
+import json
 import sqlite3
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 from core.utils import DATA_DIR
 
-DB_PATH = DATA_DIR / "jobs1.db"
+DB_PATH = DATA_DIR / "jobs.db"
 
 
 @dataclass
@@ -15,6 +16,9 @@ class Job:
     save_path: Path
     current_chap: int = field(default=None)
     status: str = field(default="waiting")
+    chapters: list = field(default=None)  # [{title, url, update_time}] từ scraper.py
+    referer: str = field(default=None)    # referer suy từ scraper (origin URL)
+    thumb: str = field(default=None)      # URL ảnh bìa từ scraper.py
 
 
 class JobManager:
@@ -41,7 +45,9 @@ class JobManager:
                     title         TEXT,
                     save_path     TEXT,
                     status        TEXT DEFAULT 'waiting',
-                    current_chap  INTEGER
+                    current_chap  INTEGER,
+                    chapters      TEXT,
+                    thumb         TEXT
                 )
             """)
             self.conn.commit()
@@ -57,19 +63,49 @@ class JobManager:
                     "ALTER TABLE jobs ADD COLUMN current_chap INTEGER"
                 )
                 self.conn.commit()
+            if "chapters" not in cols:
+                self.conn.execute(
+                    "ALTER TABLE jobs ADD COLUMN chapters TEXT"
+                )
+                self.conn.commit()
+            if "thumb" not in cols:
+                self.conn.execute(
+                    "ALTER TABLE jobs ADD COLUMN thumb TEXT"
+                )
+                self.conn.commit()
 
     # ------------------------------------------------------------------
     # CRUD (đồng bộ - giữ nguyên để dùng nội bộ / lúc khởi tạo, không hot path)
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _chapters_to_json(chapters) -> str | None:
+        if not chapters:
+            return None
+        try:
+            return json.dumps(chapters, ensure_ascii=False)
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _chapters_from_json(raw) -> list:
+        if not raw:
+            return None
+        try:
+            chapters = json.loads(raw)
+        except (TypeError, ValueError):
+            return None
+        return chapters if isinstance(chapters, list) else None
+
     def add(self, job: Job):
         with self._lock:
             self.conn.execute(
                 """
-                INSERT OR IGNORE INTO jobs (url, title, save_path, status, current_chap)
-                VALUES (?, ?, ?, 'waiting', NULL)
+                INSERT OR IGNORE INTO jobs (url, title, save_path, status, current_chap, chapters, thumb)
+                VALUES (?, ?, ?, 'waiting', NULL, ?, ?)
                 """,
-                (job.url, job.title, str(job.save_path)),
+                (job.url, job.title, str(job.save_path),
+                 self._chapters_to_json(job.chapters), job.thumb),
             )
             self.conn.commit()
 
@@ -86,6 +122,8 @@ class JobManager:
             save_path=Path(row["save_path"]),
             current_chap=row["current_chap"],
             status=row["status"],
+            chapters=self._chapters_from_json(row["chapters"]),
+            thumb=row["thumb"],
         )
 
     def update_status(self, url: str, status: str):
@@ -101,6 +139,22 @@ class JobManager:
             self.conn.execute(
                 "UPDATE jobs SET current_chap = ? WHERE url = ?",
                 (chap_index, url),
+            )
+            self.conn.commit()
+
+    def update_chapters(self, url: str, chapters: list):
+        with self._lock:
+            self.conn.execute(
+                "UPDATE jobs SET chapters = ? WHERE url = ?",
+                (self._chapters_to_json(chapters), url),
+            )
+            self.conn.commit()
+
+    def update_thumb(self, url: str, thumb: str):
+        with self._lock:
+            self.conn.execute(
+                "UPDATE jobs SET thumb = ? WHERE url = ?",
+                (thumb, url),
             )
             self.conn.commit()
 
@@ -122,6 +176,8 @@ class JobManager:
                 save_path=Path(r["save_path"]),
                 current_chap=r["current_chap"],
                 status=r["status"],
+                chapters=self._chapters_from_json(r["chapters"]),
+                thumb=r["thumb"],
             )
             for r in rows
         ]
@@ -140,6 +196,8 @@ class JobManager:
                 save_path=Path(r["save_path"]),
                 current_chap=r["current_chap"],
                 status=r["status"],
+                chapters=self._chapters_from_json(r["chapters"]),
+                thumb=r["thumb"],
             )
             for r in rows
         ]
@@ -156,6 +214,14 @@ class JobManager:
     async def aupdate_current_chap(self, url: str, chap_index: int):
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, self.update_current_chap, url, chap_index)
+
+    async def aupdate_chapters(self, url: str, chapters: list):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self.update_chapters, url, chapters)
+
+    async def aupdate_thumb(self, url: str, thumb: str):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self.update_thumb, url, thumb)
 
     async def areset_current_chap(self, url: str):
         loop = asyncio.get_running_loop()

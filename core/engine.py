@@ -8,9 +8,7 @@ from core.crawler import Crawler
 from core.downloader import Downloader
 from core.job_manager import Job, JobManager
 from core.utils import safe_filename, CONFIG
-from extractors import get_extractor
 from core.logger import logger
-
 
 class Engine(QObject):
     progress = pyqtSignal(str, str)
@@ -33,6 +31,16 @@ class Engine(QObject):
             job.save_path = existing.save_path
             job.current_chap = existing.current_chap  # mang theo điểm dừng
             status = existing.status
+            # Job cũ (restore) có thể chưa có chapters/thumb -> lấy từ GUI nếu có,
+            # và lưu xuống DB để lần sau không cần crawl lại.
+            if not existing.chapters and job.chapters:
+                await self.db.aupdate_chapters(job.url, job.chapters)
+            elif existing.chapters and not job.chapters:
+                job.chapters = existing.chapters
+            if not existing.thumb and job.thumb:
+                await self.db.aupdate_thumb(job.url, job.thumb)
+            elif existing.thumb and not job.thumb:
+                job.thumb = existing.thumb
         else:
             status = None
 
@@ -65,9 +73,7 @@ class Engine(QObject):
             return
         self.running = True
 
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
-        }
+        headers = {"User-Agent": CONFIG.get("user_agent", "")}
 
         async with aiohttp.ClientSession(headers=headers) as session:
             self.downloader.set_session(session)
@@ -120,7 +126,25 @@ class Engine(QObject):
             try:
                 await self.db.aupdate_status(job.url, "running")
                 logger.info(f"[W{wid}] {job.title}")
-                data = await self.crawl_job(job)
+
+                # Nếu job được add lúc app đang chạy thì chapters/thumb đã có sẵn
+                # (từ preview) — chỉ crawl lại khi job restore (chưa có chapters).
+                if not job.chapters:
+                    data = await self.crawl_job(job)
+                    job.chapters = data.get("chapters") or []
+                    job.thumb = data.get("thumb") or ""
+                    if job.chapters:
+                        await self.db.aupdate_chapters(job.url, job.chapters)
+                    if job.thumb:
+                        await self.db.aupdate_thumb(job.url, job.thumb)
+                else:
+                    data = {
+                        "title": job.title,
+                        "thumb": job.thumb or "",
+                        "referer": job.referer or "",
+                        "chapters": job.chapters,
+                    }
+
                 has_failed = await self.download_job(job, data)
 
                 if has_failed:
@@ -151,7 +175,7 @@ class Engine(QObject):
     async def download_job(self, job, data) -> bool:
         """Trả về True nếu có ít nhất 1 ảnh lỗi vĩnh viễn trong toàn bộ job."""
         await self._download_thumb(job, data)
-        referer = get_extractor(job.url).referer
+        referer = data.get("referer") or ""
 
         chapters = list(reversed(data["chapters"]))
         total_chap = len(chapters)
@@ -202,11 +226,13 @@ class Engine(QObject):
 
         thumb_path = job.save_path
 
-        # đã có sẵn (job resume/rerun) -> khỏi tải lại
-        if thumb_path.exists() and any(thumb_path.iterdir()):
+        # Đã có thumb.jpg (job resume/rerun) -> khỏi tải lại. Chỉ check file
+        # thumb.jpg cụ thể, KHÔNG check folder có gì (folder có chapter nhưng
+        # thiếu thumb vẫn phải tải).
+        if (thumb_path / "thumb.jpg").exists():
             return
 
-        referer = get_extractor(job.url).referer
+        referer = data.get("referer") or ""
         failed_urls = await self.downloader.download_batch([thumb_url], thumb_path, referer=referer)
 
         if failed_urls:

@@ -1,12 +1,12 @@
 # Comic Download Tool
 
-**Comic Download Tool** is a Python-based comic crawling and downloading engine designed with a modular extractor architecture.
+**Comic Download Tool** is a Python-based comic crawling and downloading engine built around a heuristic scraper.
 
 The project separates crawling, extraction, downloading, job management, and GUI components so that new comic websites can be integrated without modifying the core engine.
 
 ## Features
 
-* Modular website extractor architecture
+* Heuristic scraper (no per-site configuration)
 * Automatic comic/chapter crawling
 * Concurrent downloading
 * Download retry mechanism
@@ -16,7 +16,6 @@ The project separates crawling, extraction, downloading, job management, and GUI
 * GUI interface
 * Centralized logging
 * Configurable worker and download limits
-* Extensible extractor registry
 * Support for multiple comic sources
 
 ## Architecture
@@ -25,20 +24,13 @@ The project separates crawling, extraction, downloading, job management, and GUI
 Comic Download Tool
 │
 ├── core/
-│   ├── base_extractor.py   # Base extractor definitions
 │   ├── crawler.py          # Crawling logic
 │   ├── downloader.py       # Image/file downloading
 │   ├── engine.py           # Main engine orchestration
 │   ├── job_manager.py      # Job queue and persistence
 │   ├── logger.py           # Logging
+│   ├── scraper.py          # Metadata + chapter-list + image heuristics
 │   └── utils.py            # Shared utilities
-│
-├── extractors/
-│   ├── base.py             # Extractor interface/base class
-│   ├── registry.py         # Extractor registration
-│   ├── hentaivnreal.py     # HentaiVNReal extractor
-│   ├── hentaivnx.py        # HentaiVNX extractor
-│   └── __init__.py
 │
 ├── gui/
 │   ├── main_window.py      # Main application window
@@ -59,7 +51,9 @@ Comic Download Tool
 ├── install.py              # Auto installer (venv + deps + Chromium)
 ├── requirements.txt        # Python dependencies
 ├── run.py                  # Application entry point
-└── run.spec               # PyInstaller build specification
+├── run.spec               # PyInstaller build specification
+├── start.sh                # Click-to-run launcher (Linux / macOS)
+└── start.bat               # Click-to-run launcher (Windows)
 ```
 
 ## Requirements
@@ -71,8 +65,10 @@ Comic Download Tool
 ## Installation
 
 The easiest way is to use the built-in auto installer. It creates a virtual
-environment (with a fallback if your system does not support `venv`), installs
-the dependencies from `requirements.txt`, and downloads Chromium for Playwright:
+environment (with a fallback that installs packages into the project's `vendor/`
+folder if your system does not support `venv`), installs the dependencies from
+`requirements.txt`, and downloads Chromium for Playwright into the project's
+`ms-playwright/` folder — everything stays inside the project directory:
 
 ```bash
 python install.py
@@ -80,10 +76,10 @@ python install.py
 
 Options:
 
-| Option                  | Description                                          |
-| ----------------------- | ---------------------------------------------------- |
-| `--skip-browsers`       | Skip downloading Chromium (packages only)            |
-| `--no-venv`             | Install directly into the current environment        |
+| Option                    | Description                                                                  |
+| -----------------------   | ----------------------------------------------------------------------------- |
+| `--skip-browsers`         | Skip downloading Chromium (packages only)                                     |
+| `--no-venv`               | Install packages into `vendor/`, skip the venv                                |
 
 Or install manually:
 
@@ -131,39 +127,59 @@ Adjust concurrency carefully. A higher value does not always mean faster downloa
 
 ## Running
 
-Run the application from the project root:
+### Easiest way: launcher
+
+Double-click the launcher for your operating system. It checks the environment
+(`.venv` or `vendor/`), installs anything missing, and then starts the app:
+
+* **Windows** — double-click `start.bat`
+* **Linux / macOS** — run `start.sh`
+
+> Linux note: most desktops (XFCE/Thunar, GNOME Files, …) open `.sh` files in a
+> text editor by default instead of running them. If double-clicking does not
+> work, open a terminal in the project folder and run:
+>
+> ```bash
+> ./start.sh
+> ```
+>
+> or right-click `start.sh` in the file manager and choose **Run**.
+
+### Run manually
+
+From the project root, after installing with `install.py`:
+
+On Linux / macOS:
 
 ```bash
-python run.py
+.venv/bin/python run.py
 ```
 
 On Windows:
 
 ```powershell
-python .\run.py
+.venv\Scripts\python.exe run.py
 ```
 
-If Playwright browsers are missing, install them with:
+Or, if you installed with `--no-venv` (packages live in `vendor/`):
 
 ```bash
-python run.py --install-browsers
+PYTHONPATH=vendor python run.py
 ```
 
-## Extractor System
+## Extraction System
 
-Comic Download Tool uses a modular extractor system.
+Comic Download Tool uses a fully heuristic scraper (`core/scraper.py`) —
+no per-site configuration is needed:
 
-Each supported website has its own extractor implementation:
-
-```text
-extractors/
-├── base.py
-├── registry.py
-├── hentaivnreal.py
-└── hentaivnx.py
-```
-
-The extractor is responsible for understanding the structure of a specific website, while the core engine handles the generic crawling and downloading workflow.
+- **Manga page** (`scrape()`): fetches the page and uses BeautifulSoup
+  heuristics (leaf-text grouping, regex chapter/date detection, base-path
+  filtering) to extract title, thumbnail, referer, and the chapter list
+  (`title` / `url` / `update_time`).
+- **Chapter page** (`find_chapter_images()`): scans all `<img>` elements,
+  filters out junk (logos, icons, ads, avatars — by class and URL patterns),
+  and keeps the content images (CDN path patterns like `/manga-images/`,
+  `/images/data/`).
 
 Conceptually:
 
@@ -171,54 +187,38 @@ Conceptually:
 Website
    │
    ▼
-Extractor
+core/scraper.py  (heuristics)
    │
-   ├── Comic metadata
-   ├── Chapter information
-   └── Image URLs
-          │
-          ▼
-       Crawler
-          │
-          ▼
-      Job Manager
-          │
-          ▼
-      Downloader
-          │
-          ▼
-     Local Storage
+   ├── Manga page   → title, thumb, referer, chapter list
+   ├── Chapter page → image URLs
+   │
+   ▼
+Crawler
+   │
+   ▼
+Job Manager
+   │
+   ▼
+Downloader
+   │
+   ▼
+Local Storage
 ```
 
-This separation makes it possible to add support for another website without rewriting the downloader or job-management system.
+Chapter lists are persisted in the job database (as JSON), so queued or
+resumed jobs do not need to re-crawl the manga page.
 
-## Adding a New Extractor
+## Adding a New Website
 
-Create a new extractor under:
+No configuration is required. If a new site uses unusual markup, tune the
+heuristics in `core/scraper.py`:
 
-```text
-extractors/
-```
+- `find_chapters()` — chapter-list detection (leaf grouping + base-path filter)
+- `find_chapter_images()` — chapter-page image detection (junk filtering +
+  content URL patterns)
 
-For example:
-
-```text
-extractors/example.py
-```
-
-The extractor should follow the interface defined by:
-
-```text
-extractors/base.py
-```
-
-Then register it through:
-
-```text
-extractors/registry.py
-```
-
-The exact implementation depends on the website being supported.
+The heuristics are shared across all sites; per-site special cases should be
+added as generic patterns, not hardcoded selectors.
 
 ## Job Database
 
@@ -251,7 +251,7 @@ logs/error.log
 Logs are useful when diagnosing:
 
 * Network failures
-* Extractor errors
+* Scraper heuristics failing to find chapters/images
 * Download failures
 * Invalid image URLs
 * Timeout errors
@@ -278,24 +278,21 @@ The generated build artifacts should not be committed to Git.
 Recommended project workflow:
 
 ```text
-1. Add/update extractor
+1. Test scraping a manga page (core/scraper.py)
         ↓
-2. Test extraction
+2. Test chapter crawling
         ↓
-3. Test chapter crawling
+3. Test image downloading
         ↓
-4. Test image downloading
+4. Test job persistence
         ↓
-5. Test job persistence
+5. Test GUI integration
         ↓
-6. Test GUI integration
-        ↓
-7. Build standalone executable
+6. Build standalone executable
 ```
 
-Keep website-specific logic inside `extractors/` whenever possible.
-
-The `core/` package should remain independent from individual websites.
+The `core/` package remains independent from individual websites; all
+scraping heuristics live in `core/scraper.py`.
 
 ## Project Structure
 
@@ -312,9 +309,10 @@ Contains the engine's generic functionality:
 * Utilities
 * Engine orchestration
 
-### Extractors
+### Scraper
 
-Contains website-specific implementations.
+Contains the heuristic extraction logic (`core/scraper.py`) shared by all
+comic sources — no website-specific code lives here; patterns are generic.
 
 ### GUI
 

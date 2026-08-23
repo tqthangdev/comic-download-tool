@@ -75,6 +75,7 @@ class MainWindow(QWidget):
 
         self.init_ui()
         self._closing = False
+        self._loaded_data = None  # kết quả scraper (title/thumb/referer/chapters) của URL đang preview
         self._update_pause_button()
 
     # =========================
@@ -189,10 +190,11 @@ class MainWindow(QWidget):
 
         try:
             data = await self.engine.crawler.get_chapters(url)
+            self._loaded_data = data
 
-            title = data["title"]
-            thumb = data["thumb"]
-            chapters = data["chapters"]
+            title = data.get("title", "")
+            thumb = data.get("thumb", "")
+            chapters = data.get("chapters") or []
 
             # =========================
             # SET TITLE
@@ -204,7 +206,14 @@ class MainWindow(QWidget):
             # =========================
             try:
                 # Chạy trong thread để không chặn event loop (gif loading xoay liên tục)
-                resp = await asyncio.to_thread(requests.get, thumb, timeout=5)
+                headers = {
+                    "User-Agent": (
+                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                        "AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36"
+                    ),
+                    "Referer": data.get("referer") or "",
+                }
+                resp = await asyncio.to_thread(requests.get, thumb, headers=headers, timeout=5)
                 img = resp.content
 
                 pixmap = QPixmap()
@@ -213,7 +222,8 @@ class MainWindow(QWidget):
 
                 self.left.manga_thumb.setPixmap(pixmap)
 
-            except Exception:
+            except Exception as e:
+                logger.error(f"Lỗi tải thumbnail preview: {e}")
                 self.left.manga_thumb.clear()
 
             # =========================
@@ -245,21 +255,12 @@ class MainWindow(QWidget):
             self.left.on_loading(False)
             logger.error(f"Error fetching preview/chapters: {e}", exc_info=True)
 
-            # Timeout ở đây là do mạng yếu/trang không tải được
+            # Timeout/lỗi mạng từ scraper.py (requests) — trang không tải được
             # (trường hợp không có chapter đã được get_chapters xử lý riêng).
-            from playwright.async_api import TimeoutError as PWTimeoutError
-
-            if isinstance(e, (TimeoutError, PWTimeoutError)):
+            if isinstance(e, (TimeoutError, requests.RequestException)):
                 self._show_message(
                     tr("error"),
                     f"{tr('network_error')}:\n{url}",
-                    critical=True
-                )
-            elif "extractor" in str(e).lower():
-                self._show_message(
-                    tr("error"),
-                    f"{tr('extractor_error')}:\n{url}\n\n"
-                    f"{e}",
                     critical=True
                 )
             else:
@@ -295,10 +296,14 @@ class MainWindow(QWidget):
                     safe_filename(title)
             )
 
+            loaded = self._loaded_data or {}
             job = Job(
                 url=url,
                 title=title,
-                save_path=save_path
+                save_path=save_path,
+                chapters=loaded.get("chapters") or None,
+                referer=loaded.get("referer"),
+                thumb=loaded.get("thumb") or None,
             )
 
             # FIX: không tự đoán "already_queued" dựa trên UI list nữa,

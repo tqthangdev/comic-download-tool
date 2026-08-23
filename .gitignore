@@ -17,6 +17,10 @@ venv/
 env/
 ENV/
 
+# Vendor packages (chỉ dùng khi --no-venv)
+
+vendor/
+
 # Python tooling
 
 .pytest_cache/

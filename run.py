@@ -47,22 +47,6 @@ def _setup_playwright_browsers_path():
 
 _setup_playwright_browsers_path()
 
-# --- Chế độ cài đặt: chạy riêng, không khởi động GUI ---
-if "--install-browsers" in sys.argv:
-    from playwright.__main__ import main as playwright_main
-    from core.logger import logger
-
-    logger.info("Đang tải Chromium, vui lòng đợi (cần kết nối internet)...")
-    sys.argv = ["playwright", "install", "chromium"]
-    try:
-        playwright_main()
-        logger.info("Cài đặt hoàn tất. Bạn có thể đóng cửa sổ này và chạy app.")
-    except SystemExit as e:
-        if e.code not in (0, None):
-            logger.error(f"Cài đặt thất bại, mã lỗi: {e.code}")
-        sys.exit(e.code or 0)
-    sys.exit(0)
-
 # --- Chế độ chạy app bình thường ---
 import asyncio
 import traceback
