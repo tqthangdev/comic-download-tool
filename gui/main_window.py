@@ -30,7 +30,7 @@ class MainWindow(QWidget):
             "ComicDownloader"
         )
 
-        # Đọc ngôn ngữ từ config.json (mặc định vi)
+        # Read language from config.json (default vi)
         from core.i18n import set_lang
         from core.utils import CONFIG
         set_lang(CONFIG.get("language", "vi"))
@@ -75,11 +75,11 @@ class MainWindow(QWidget):
 
         self.init_ui()
         self._closing = False
-        self._loaded_data = None  # kết quả scraper (title/thumb/referer/chapters) của URL đang preview
+        self._loaded_data = None  # scraper result (title/thumb/referer/chapters) of the URL being previewed
         self._update_pause_button()
 
     # =========================
-    # UI GIỮ NGUYÊN 2 CỘT
+    # UI KEEPS 2 COLUMNS
     # =========================
     def init_ui(self):
         layout = QHBoxLayout()
@@ -111,9 +111,9 @@ class MainWindow(QWidget):
         self._update_pause_button()
 
     def _apply_cursors(self):
-        """Qt Style Sheets không hỗ trợ thuộc tính cursor -> set qua code.
+        """Qt Style Sheets do not support the cursor property -> set it in code.
 
-        Hover vào button: pointer. Button disabled: not-allowed (forbidden).
+        Hover over a button: pointer. Disabled button: not-allowed (forbidden).
         """
         pointer = QCursor(Qt.CursorShape.PointingHandCursor)
         forbidden = QCursor(Qt.CursorShape.ForbiddenCursor)
@@ -121,7 +121,7 @@ class MainWindow(QWidget):
         buttons = self.findChildren(QPushButton)
         for btn in buttons:
             btn.setCursor(pointer)
-            # cập nhật cursor khi trạng thái enabled/disabled thay đổi
+            # update the cursor when the enabled/disabled state changes
             btn.installEventFilter(self)
 
     def eventFilter(self, obj, event):
@@ -147,8 +147,8 @@ class MainWindow(QWidget):
         if not new_url:
             return
 
-        # Clipboard có thể chứa nội dung không phải URL (VD copy nhầm dòng
-        # warning từ console) -> kiểm tra trước khi load.
+        # The clipboard may hold non-URL content (e.g. accidentally copied a
+        # console warning line) -> validate before loading.
         if not new_url.startswith(("http://", "https://")):
             self._show_message(
                 tr("error"),
@@ -160,8 +160,8 @@ class MainWindow(QWidget):
         old_url = self.left.url_input.text().strip()
         old_title = self.left.manga_title.text().strip()
 
-        # Nếu bật "Automatically add to queue" và đang có 1 truyện (A) đã load
-        # xong (có title) và khác với url mới (B) -> tự add A vào queue trước
+        # If "Automatically add to queue" is on and there is a story (A) already
+        # loaded (has a title) different from the new url (B), auto-add A first
         should_auto_queue = (
                 self.left.auto_queue_cb.isChecked()
                 and old_url
@@ -182,6 +182,7 @@ class MainWindow(QWidget):
     # =========================
     @asyncSlot()
     async def on_load_chapters(self):
+        from core.utils import CONFIG
         url = self.left.url_input.text().strip()
         if not url or url == "":
             return
@@ -205,12 +206,9 @@ class MainWindow(QWidget):
             # SET THUMB (150x200)
             # =========================
             try:
-                # Chạy trong thread để không chặn event loop (gif loading xoay liên tục)
+                # Run in a thread so the loading gif keeps spinning (does not block the event loop)
                 headers = {
-                    "User-Agent": (
-                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                        "AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36"
-                    ),
+                    "User-Agent": CONFIG["user_agent"],
                     "Referer": data.get("referer") or "",
                 }
                 resp = await asyncio.to_thread(requests.get, thumb, headers=headers, timeout=5)
@@ -223,7 +221,7 @@ class MainWindow(QWidget):
                 self.left.manga_thumb.setPixmap(pixmap)
 
             except Exception as e:
-                logger.error(f"Lỗi tải thumbnail preview: {e}")
+                logger.error(f"Thumbnail preview load error: {e}")
                 self.left.manga_thumb.clear()
 
             # =========================
@@ -255,8 +253,8 @@ class MainWindow(QWidget):
             self.left.on_loading(False)
             logger.error(f"Error fetching preview/chapters: {e}", exc_info=True)
 
-            # Timeout/lỗi mạng từ scraper.py (requests) — trang không tải được
-            # (trường hợp không có chapter đã được get_chapters xử lý riêng).
+            # Timeout/network error from scraper.py (requests) — page could not load
+            # (the no-chapters case is handled separately by get_chapters).
             if isinstance(e, (TimeoutError, requests.RequestException)):
                 self._show_message(
                     tr("error"),
@@ -306,8 +304,8 @@ class MainWindow(QWidget):
                 thumb=loaded.get("thumb") or None,
             )
 
-            # FIX: không tự đoán "already_queued" dựa trên UI list nữa,
-            # để engine.add_job() (đọc status thật từ DB) quyết định duy nhất.
+            # FIX: no longer guess "already_queued" from the UI list; let
+            # engine.add_job() (which reads the real status from the DB) decide.
             result = await self.engine.add_job(job)
             status = "Waiting" if self.engine.running else ""
 
@@ -363,7 +361,7 @@ class MainWindow(QWidget):
         box.setModal(False)
         box.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
 
-        # giữ reference để tránh bị garbage-collect trước khi hiển thị xong
+        # keep a reference to avoid being garbage-collected before it finishes showing
         if not hasattr(self, "_active_message_boxes"):
             self._active_message_boxes = []
         self._active_message_boxes.append(box)
@@ -382,7 +380,7 @@ class MainWindow(QWidget):
         if path_str:
             paths_to_check.add(Path(path_str))
 
-        # Thêm các đường dẫn lưu trữ của các job trong hàng đợi
+        # Also add the storage paths of the queued jobs
         for i in range(self.right.queue_list.count()):
             item = self.right.queue_list.item(i)
             data = item.data(Qt.ItemDataRole.UserRole)
@@ -423,7 +421,8 @@ class MainWindow(QWidget):
     # =========================
     @asyncSlot()
     async def _restore_session(self):
-        jobs = await self.engine.restore_session()
+        base_path = self.left.path_input.text().strip()
+        jobs = await self.engine.restore_session(base_path)
         for job in jobs:
             label = tr("status_resume") if job.current_chap else tr("status_paused")
             self.right.update_queue_item(job.url, job, label)
@@ -468,7 +467,7 @@ class MainWindow(QWidget):
     # PAUSE BUTTON STATE
     # =========================
     def _update_pause_button(self):
-        """Đồng bộ trạng thái nút Pause với engine + queue."""
+        """Sync the Pause button state with the engine and the queue."""
         has_pending = any(
             self.right.queue_list.item(i).data(Qt.ItemDataRole.UserRole)["status"]
             not in ("Done", "Failed")
@@ -510,7 +509,7 @@ class MainWindow(QWidget):
     # =========================
     def closeEvent(self, event):
         if self._closing:
-            # Lần gọi close() sau khi đã bật cờ _closing -> cho phép đóng thật
+            # This close() call happens after _closing was set -> allow the real close
             event.accept()
             return
 
@@ -533,7 +532,7 @@ class MainWindow(QWidget):
             event.ignore()
             return
 
-        # Chặn đóng cửa sổ ngay lập tức để thực hiện dừng engine/dọn dẹp
+        # Block the immediate close to stop the engine / clean up first
         event.ignore()
 
         if self.engine.running:

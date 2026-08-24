@@ -265,11 +265,41 @@ The project contains a PyInstaller specification:
 run.spec
 ```
 
-Build the executable with:
+PyInstaller is **not cross-platform**: you must build on the same OS that
+will run the executable.
+
+**Linux / macOS** — run the provided helper script (from the project root):
+it creates `.venv`, installs dependencies + PyInstaller, and runs the build
+automatically:
 
 ```bash
-pyinstaller run.spec
+./build_linux.sh
 ```
+
+Or build manually:
+
+```bash
+.venv/bin/python -m pip install pyinstaller
+.venv/bin/python -m pyinstaller run.spec --noconfirm
+```
+
+Output: `dist/ /`.
+
+**Windows** — copy the whole project folder to a Windows machine, then run
+the provided helper script (double-click `build_windows.bat`, or run it from
+`cmd`). It creates `.venv`, installs dependencies + PyInstaller, and runs the
+build automatically:
+
+```text
+build_windows.bat
+```
+
+Output: `dist\ComicDownloadTool\`.
+
+When distributing, copy the **entire** output folder (`ComicDownloadTool/`),
+not just the executable. On first run the app looks for a portable
+`ms-playwright/` folder next to the executable, otherwise it falls back to the
+system-default Chromium location.
 
 The generated build artifacts should not be committed to Git.
 

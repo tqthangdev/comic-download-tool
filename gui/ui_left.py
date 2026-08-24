@@ -96,14 +96,14 @@ class LeftPanel(QWidget):
         default_path = str(Path.home() / "Documents")
         saved_path = self.settings.value("save_path", "", type=str)
 
-        # Path lưu từ lần chạy trước có thể là của máy khác (VD Windows E:\...)
-        # hoặc ổ đĩa đã ngắt kết nối -> fallback về thư mục mặc định.
+        # The saved path may come from another machine (e.g. Windows E:\...) or a
+        # disconnected drive -> fall back to the default folder.
         if not saved_path or not Path(saved_path).is_absolute() or not Path(saved_path).exists():
             saved_path = default_path
 
         self.path_input.setPlaceholderText(tr("path_placeholder"))
         self.path_input.setText(saved_path)
-        # Luôn cho sửa path, và mỗi lần đổi (pick folder / gõ tay) là lưu lại
+        # The path is always editable; each change (pick folder / typing) is saved
         self.path_input.editingFinished.connect(self._save_path)
 
         path_layout.addWidget(self.path_input, 1)
@@ -211,7 +211,7 @@ class LeftPanel(QWidget):
         self.btn_folder.clicked.connect(self.pick_folder)
 
     # =========================
-    # LƯU PATH ĐÃ CHỌN (cho lần chạy sau)
+    # SAVE THE SELECTED PATH (for the next run)
     # =========================
     def _save_path(self):
         path = self.path_input.text().strip()
@@ -225,7 +225,7 @@ class LeftPanel(QWidget):
         self.settings.setValue("auto_queue", checked)
 
     # =========================
-    # CẬP NHẬT TEXT KHI ĐỔI NGÔN NGỮ
+    # UPDATE TEXT WHEN THE LANGUAGE CHANGES
     # =========================
     def retranslate(self):
         self.url_input.setPlaceholderText(tr("url_placeholder"))
@@ -237,7 +237,7 @@ class LeftPanel(QWidget):
         self.auto_queue_cb.setText(tr("auto_queue"))
 
     # =========================
-    # SETTINGS MODAL (đọc/ghi config.json)
+    # SETTINGS MODAL (read/write config.json)
     # =========================
     def open_settings(self):
         dialog = _ConfigDialog(self)
@@ -277,9 +277,9 @@ class LeftPanel(QWidget):
 
 
 class _ConfigDialog(QDialog):
-    """Modal chỉnh các giá trị trong config.json."""
+    """Modal to edit the values in config.json."""
 
-    # (i18n key nhãn, key config, kiểu, i18n key mô tả)
+    # (i18n label key, config key, type, i18n description key)
     FIELDS = [
         ("field_max_workers", "max_workers", int, "field_max_workers_desc"),
         ("field_max_concurrent", "max_concurrent_downloads", int, "field_max_concurrent_desc"),
@@ -299,15 +299,15 @@ class _ConfigDialog(QDialog):
         layout = QVBoxLayout(self)
         form = QFormLayout()
 
-        # ===== COMBOBOX: NGÔN NGỮ =====
+        # ===== LANGUAGE COMBOBOX =====
         self.cb_lang = QComboBox()
         self.cb_lang.addItem(tr("lang_vi"), "vi")
         self.cb_lang.addItem(tr("lang_en"), "en")
         idx = self.cb_lang.findData(get_lang())
         self.cb_lang.setCurrentIndex(idx if idx >= 0 else 0)
 
-        # Bọc trong row có stretch để width khớp với các text box phía dưới
-        # (các row khác có nút "?" 24px chiếm cuối hàng -> chừa đúng 24px)
+        # Wrap in a stretching row so the width matches the text boxes below
+        # (the other rows have a "?" button 24px at the end -> leave exactly 24px)
         lang_row = QWidget()
         lang_layout = QHBoxLayout(lang_row)
         lang_layout.setContentsMargins(0, 0, 0, 0)
@@ -337,7 +337,7 @@ class _ConfigDialog(QDialog):
 
             self._inputs[key] = widget
 
-            # Icon "?" — nhấn để mở modal chi tiết option
+            # "?" icon — click to open the option detail modal
             btn_help = QToolButton()
             btn_help.setText("?")
             btn_help.setFixedSize(24, 24)
@@ -358,7 +358,7 @@ class _ConfigDialog(QDialog):
 
         layout.addLayout(form)
 
-        # ===== RADIO: LƯU THUMBNAIL KHI TẢI =====
+        # ===== RADIO: SAVE THUMBNAIL WHEN DOWNLOADING =====
         thumb_row = QWidget()
         thumb_layout = QHBoxLayout(thumb_row)
         thumb_layout.setContentsMargins(0, 0, 0, 0)
@@ -417,7 +417,7 @@ class _ConfigDialog(QDialog):
         new_config["language"] = self.cb_lang.currentData()
 
         if save_config(new_config):
-            # Cập nhật CONFIG + ngôn ngữ trong bộ nhớ để áp dụng ngay
+            # Update the in-memory CONFIG + language so the change applies immediately
             CONFIG.clear()
             CONFIG.update(new_config)
             set_lang(new_config["language"])
@@ -433,7 +433,7 @@ class _ConfigDialog(QDialog):
 
 
 class _HelpDialog(QDialog):
-    """Modal hiển thị chi tiết + khuyến nghị của một option."""
+    """Modal showing the detail + recommendation of an option."""
 
     def __init__(self, title: str, description: str, parent=None):
         super().__init__(parent)

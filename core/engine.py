@@ -4,6 +4,8 @@ import aiohttp
 
 from PyQt6.QtCore import QObject, pyqtSignal
 
+from pathlib import Path
+
 from core.crawler import Crawler
 from core.downloader import Downloader
 from core.job_manager import Job, JobManager
@@ -22,17 +24,21 @@ class Engine(QObject):
         self.downloader = Downloader()
         self.db = JobManager()
         self.running = False
-        self.active_jobs = {}  # url -> Job đang chạy, để stop() lấy lại được
+        self.active_jobs = {}  # url -> currently running Job, for stop() to retrieve
 
     async def add_job(self, job: Job):
         existing = self.db.get_job(job.url)
 
         if existing:
-            job.save_path = existing.save_path
-            job.current_chap = existing.current_chap  # mang theo điểm dừng
+            # Always prefer the save_path from the GUI (current input path),
+            # not the old path stored in the DB. If the user changed the path,
+            # persist it back to the DB so the next run stays in sync.
+            if existing.save_path != job.save_path:
+                self.db.update_save_path(job.url, job.save_path)
+            job.current_chap = existing.current_chap  # keep the resume point
             status = existing.status
-            # Job cũ (restore) có thể chưa có chapters/thumb -> lấy từ GUI nếu có,
-            # và lưu xuống DB để lần sau không cần crawl lại.
+            # An old (restored) job may lack chapters/thumb -> take them from the
+            # GUI if available and store them so the next run does not re-crawl.
             if not existing.chapters and job.chapters:
                 await self.db.aupdate_chapters(job.url, job.chapters)
             elif existing.chapters and not job.chapters:
@@ -84,9 +90,9 @@ class Engine(QObject):
                 for i in range(self.max_workers)
             ]
 
-            # return_exceptions=True: các worker bị cancel (CancelledError)
-            # sẽ được gom vào kết quả thay vì bay ngược lên gọi tiếp lên
-            # start_engine() gây "unhandled exception" trong asyncSlot.
+            # return_exceptions=True: cancelled workers (CancelledError) are gathered
+            # into the result instead of bubbling up to start_engine() and
+            # raising an "unhandled exception" inside an asyncSlot.
             await asyncio.gather(*self.workers, return_exceptions=True)
 
         self.running = False
@@ -95,7 +101,7 @@ class Engine(QObject):
     async def stop(self):
         self.running = False
 
-        # job đang dở dang -> "paused" + trả lại queue để start() sau tải tiếp
+        # incomplete job -> mark "paused" and put it back on the queue to resume
         for job in list(self.active_jobs.values()):
             self.db.update_status(job.url, "paused")
             await self.queue.put(job)
@@ -106,10 +112,18 @@ class Engine(QObject):
         self.workers.clear()
         self.active_jobs.clear()
 
-    async def restore_session(self):
-        """Khôi phục job dở dang (waiting/paused/failed) từ session trước vào lại queue."""
+    async def restore_session(self, base_path: str = None):
+        """Restore incomplete jobs (waiting/paused/failed) from the previous
+        session back into the queue."""
         restored = []
         for job in self.db.get_restorable_jobs():
+            # Always use the current path (from the path input) instead of the
+            # old one in the DB, matching the "prefer current path" rule of add_job.
+            if base_path:
+                new_path = Path(base_path) / safe_filename(job.title)
+                if job.save_path != new_path:
+                    job.save_path = new_path
+                    self.db.update_save_path(job.url, job.save_path)
             self.db.update_status(job.url, "waiting")
             await self.queue.put(job)
             restored.append(job)
@@ -127,8 +141,9 @@ class Engine(QObject):
                 await self.db.aupdate_status(job.url, "running")
                 logger.info(f"[W{wid}] {job.title}")
 
-                # Nếu job được add lúc app đang chạy thì chapters/thumb đã có sẵn
-                # (từ preview) — chỉ crawl lại khi job restore (chưa có chapters).
+                # If the job was added while the app was running, chapters/thumb already
+                # exist (from preview) — only re-crawl when the job was restored
+                # (no chapters yet).
                 if not job.chapters:
                     data = await self.crawl_job(job)
                     job.chapters = data.get("chapters") or []
@@ -150,7 +165,7 @@ class Engine(QObject):
                 if has_failed:
                     await self.db.aupdate_status(job.url, "failed")
                     self.progress.emit(job.title, "Failed")
-                    logger.warning(f"[{job.title}] Có ảnh lỗi, đánh dấu Failed.")
+                    logger.warning(f"[{job.title}] Has failed images, marking Failed.")
                 else:
                     await self.finish_job(job)
 
@@ -173,7 +188,7 @@ class Engine(QObject):
         return await self.crawler.get_chapters(job.url)
 
     async def download_job(self, job, data) -> bool:
-        """Trả về True nếu có ít nhất 1 ảnh lỗi vĩnh viễn trong toàn bộ job."""
+        """Return True if at least one image permanently failed in the whole job."""
         await self._download_thumb(job, data)
         referer = data.get("referer") or ""
 
@@ -211,12 +226,12 @@ class Engine(QObject):
 
             if failed_urls:
                 has_failed = True
-                logger.error(f"[{job.title}] Chapter {chap['title']}: {len(failed_urls)} ảnh lỗi: {failed_urls}")
+                logger.error(f"[{job.title}] Chapter {chap['title']}: {len(failed_urls)} failed images: {failed_urls}")
 
         return has_failed
 
     async def _download_thumb(self, job, data):
-        """Tải ảnh bìa (thumbnail) của job vào job.save_path/thumb.jpg."""
+        """Download the job's cover image (thumbnail) into job.save_path/thumb.jpg."""
         if not CONFIG.get("download_thumb", True):
             return
 
@@ -226,9 +241,9 @@ class Engine(QObject):
 
         thumb_path = job.save_path
 
-        # Đã có thumb.jpg (job resume/rerun) -> khỏi tải lại. Chỉ check file
-        # thumb.jpg cụ thể, KHÔNG check folder có gì (folder có chapter nhưng
-        # thiếu thumb vẫn phải tải).
+        # Skip if thumb.jpg already exists (resume/rerun) — only check that specific
+        # file, NOT the folder contents (a folder with chapters but no thumb
+        # must still be downloaded).
         if (thumb_path / "thumb.jpg").exists():
             return
 
@@ -236,10 +251,10 @@ class Engine(QObject):
         failed_urls = await self.downloader.download_batch([thumb_url], thumb_path, referer=referer)
 
         if failed_urls:
-            logger.error(f"[{job.title}] Lỗi tải thumbnail: {thumb_url}")
+            logger.error(f"[{job.title}] Thumbnail download error: {thumb_url}")
             return
 
-        # download_batch đặt tên "0000.jpg" theo index -> đổi lại tên cho rõ nghĩa
+        # download_batch names files "0000.jpg" by index -> rename for clarity
         raw_file = thumb_path / "0000.jpg"
         if raw_file.exists():
             raw_file.rename(thumb_path / "thumb.jpg")
@@ -250,10 +265,10 @@ class Engine(QObject):
             try:
                 return await self.crawler.extract_images(url)
             except asyncio.CancelledError:
-                raise  # không retry khi bị pause/cancel chủ động
+                raise  # do not retry on an intentional pause/cancel
             except Exception as e:
                 last_err = e
-                logger.warning(f"Retry extract_images ({attempt + 1}/{retries}) do lỗi: {e}")
+                logger.warning(f"Retry extract_images ({attempt + 1}/{retries}) due to error: {e}")
         raise last_err
 
     def verify_chapter(self, path, total_images):

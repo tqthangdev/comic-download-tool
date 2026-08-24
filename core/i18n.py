@@ -1,4 +1,4 @@
-"""Đơn giản: hỗ trợ 2 ngôn ngữ vi/en, có cơ chế thông báo khi đổi ngôn ngữ."""
+"""Simple localization: supports vi/en, with a callback mechanism when the language changes."""
 
 TRANSLATIONS = {
     "vi": {
@@ -19,7 +19,7 @@ TRANSLATIONS = {
         "language_label": "Ngôn ngữ",
         "lang_vi": "Tiếng Việt",
         "lang_en": "English",
-        # Thông báo
+        # Notifications
         "no_chapters": "Không tìm thấy chapter nào cho truyện này.",
         "network_error": "Không thể tải trang, vui lòng kiểm tra mạng",
         "extractor_error": "Không hỗ trợ website này",
@@ -151,15 +151,15 @@ TRANSLATIONS = {
     },
 }
 
-# Ngôn ngữ hiện tại
+# Current language
 _lang = "vi"
 
-# Danh sách callback khi đổi ngôn ngữ (để UI tự cập nhật)
+# Listeners called when the language changes (so the UI can update itself)
 _listeners = []
 
 
 def tr(key: str) -> str:
-    """Lấy chuỗi dịch theo ngôn ngữ hiện tại."""
+    """Get the translated string for the current language."""
     return TRANSLATIONS.get(_lang, {}).get(key, key)
 
 

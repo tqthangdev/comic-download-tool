@@ -4,11 +4,11 @@ from PyQt6.QtCore import Qt, QRect
 
 
 class QueueDelegate(QStyledItemDelegate):
-    # chiều rộng tối đa/tối thiểu dành cho vùng status bên phải
+    # max/min width reserved for the status area on the right
     STATUS_WIDTH_MAX = 200
     STATUS_WIDTH_MIN = 150
     LEFT_PADDING = 5
-    GAP = 10  # khoảng cách giữa title và status
+    GAP = 10  # gap between the title and the status
 
     def paint(self, painter, option, index):
 
@@ -26,15 +26,15 @@ class QueueDelegate(QStyledItemDelegate):
 
         rect = option.rect
 
-        # ================= TÍNH STATUS WIDTH ĐỘNG =================
-        # status chiếm tối đa ~30% chiều rộng khung, nhưng không vượt STATUS_WIDTH_MAX
-        # và không nhỏ hơn STATUS_WIDTH_MIN, để luôn vừa trong khung hiện có
+        # ================= COMPUTE STATUS WIDTH DYNAMICALLY =================
+        # status takes up to ~30% of the frame width, capped by STATUS_WIDTH_MAX
+        # and floored by STATUS_WIDTH_MIN, so it always fits in the current frame
         status_width = max(
             self.STATUS_WIDTH_MIN,
             min(self.STATUS_WIDTH_MAX, int(rect.width() * 0.3))
         )
 
-        # ================= VÙNG STATUS (cố định bên phải) =================
+        # ================= STATUS AREA (fixed on the right) =================
         status_rect = QRect(
             rect.right() - status_width,
             rect.top(),
@@ -42,7 +42,7 @@ class QueueDelegate(QStyledItemDelegate):
             rect.height()
         )
 
-        # ================= VÙNG TITLE (phần còn lại bên trái) =================
+        # ================= TITLE AREA (remaining space on the left) =================
         title_width = max(
             0,
             status_rect.left() - rect.left() - self.LEFT_PADDING - self.GAP
@@ -54,7 +54,7 @@ class QueueDelegate(QStyledItemDelegate):
             rect.height()
         )
 
-        # elide title nếu quá dài để không đè lên status
+        # elide the title if it is too long so it does not overlap the status
         metrics = QFontMetrics(painter.font())
         elided_title = metrics.elidedText(
             title,
@@ -88,8 +88,8 @@ class QueueDelegate(QStyledItemDelegate):
 
         painter.setPen(QColor(color))
 
-        # Nếu status dài (VD "Downloading...(2/10): 100%") -> co giãn font cho
-        # vừa vùng status thay vì bị cắt mất phần cuối.
+        # If the status is long (e.g. "Downloading...(2/10): 100%") shrink the font to
+        # fit the status area instead of truncating the tail.
         font = painter.font()
         if status_rect.width() < metrics.horizontalAdvance(status):
             shrink = font

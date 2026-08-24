@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 """
-Auto-installer cho Comic Download Tool.
+Auto-installer for the Comic Download Tool.
 
-Cài mọi thứ cần thiết để chạy app, tất cả nằm gọn trong thư mục code:
-  1. Tạo virtual environment (.venv) — nếu hệ thống không hỗ trợ (thiếu
-     python3-venv / ensurepip) thì tự fallback cài package vào vendor/.
-  2. Cài các dependencies trong requirements.txt.
-  3. Tải Chromium cho Playwright vào ms-playwright/.
+Installs everything needed to run the app, all kept inside the code folder:
+  1. Creates a virtual environment (.venv) — if the system lacks support
+     (python3-venv / ensurepip) it falls back to installing packages into vendor/.
+  2. Installs the dependencies listed in requirements.txt.
+  3. Downloads Chromium for Playwright into ms-playwright/.
 
-Cách dùng:
-  python install.py                # cài hết
-  python install.py --no-venv      # không tạo venv, cài package vào vendor/
-  python install.py --skip-browsers  # bỏ qua tải Chromium (nếu chỉ muốn cài package)
+Usage:
+  python install.py                # install everything
+  python install.py --no-venv      # skip venv, install packages into vendor/
+  python install.py --skip-browsers  # skip downloading Chromium (packages only)
 """
 import os
 import subprocess
@@ -77,7 +77,7 @@ def main():
     if venv_mode == "venv":
         py = venv_python()
     else:
-        # Cài package thẳng vào vendor/ trong project, không đụng tới hệ thống/user.
+        # Install packages directly into project/vendor, not touching system/user.
         VENDOR_DIR.mkdir(exist_ok=True)
         install_env = dict(os.environ)
         install_env["PYTHONPATH"] = str(VENDOR_DIR)
@@ -95,8 +95,8 @@ def main():
         print("\n[3/3] Bỏ qua tải Chromium (--skip-browsers).")
     else:
         print("\n[3/3] Tải Chromium cho Playwright (có thể mất vài phút)...")
-        # Cài Chromium vào ms-playwright/ trong project để app luôn chạy được
-        # từ thư mục code (portable), không phụ thuộc thư mục cache của máy.
+        # Install Chromium into project/ms-playwright so the app always runs
+        # from the code folder (portable), independent of the machine's cache.
         browser_env = dict(os.environ)
         browser_env["PLAYWRIGHT_BROWSERS_PATH"] = str(BROWSERS_DIR)
         run([str(py), "-m", "playwright", "install", "chromium"], env=browser_env)

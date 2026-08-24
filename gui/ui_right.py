@@ -16,8 +16,8 @@ from core.i18n import tr
 class RightPanel(QWidget):
     """
     Right side of the main window:
-    - Start / Pause / Clear Done buttons (phía trên)
-    - Queue list (phía dưới)
+    - Start / Pause / Clear Done buttons (top)
+    - Queue list (bottom)
     """
 
     def __init__(self, parent=None):
@@ -29,7 +29,7 @@ class RightPanel(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
 
-        # ================= BUTTON ROW (phía trên) =================
+        # ================= BUTTON ROW (top) =================
         self.btn_start = QPushButton(tr("start"))
         self.btn_pause = QPushButton(tr("pause"))
         self.btn_clear = QPushButton(tr("clear_done"))
@@ -123,8 +123,8 @@ class RightPanel(QWidget):
                 return
 
     def clear_done(self):
-        """Xóa tất cả items có status = 'Done' khỏi queue"""
-        for i in range(self.queue_list.count() - 1, -1, -1):  # Lặp ngược
+        """Remove all queue items with status 'Done'."""
+        for i in range(self.queue_list.count() - 1, -1, -1):  # iterate backwards
             item = self.queue_list.item(i)
             data = item.data(Qt.ItemDataRole.UserRole)
 

@@ -33,7 +33,7 @@ class Downloader:
 
         for attempt in range(retry):
             try:
-                async with self._semaphore:  # giới hạn số request đồng thời
+                async with self._semaphore:  # limit concurrent requests
                     async with self.session.get(
                             url,
                             headers=headers,
@@ -42,7 +42,7 @@ class Downloader:
                         if r.status == 200:
                             data = await r.read()
 
-                            # Ghi file trong executor để không block event loop
+                            # Write the file in an executor to avoid blocking the event loop
                             loop = asyncio.get_running_loop()
                             await loop.run_in_executor(None, path.write_bytes, data)
 

@@ -10,7 +10,7 @@ def _get_base_dir() -> Path:
 
 
 def _default_playwright_browsers_path() -> Path:
-    """Path mặc định mà Playwright tự dùng nếu không set biến môi trường."""
+    """Default path Playwright uses when no env var is set."""
     if sys.platform == "win32":
         return Path(os.environ["USERPROFILE"]) / "AppData" / "Local" / "ms-playwright"
     elif sys.platform == "darwin":
@@ -20,7 +20,7 @@ def _default_playwright_browsers_path() -> Path:
 
 
 def _has_chromium_installed(browsers_dir: Path) -> bool:
-    """Kiểm tra xem trong thư mục ms-playwright đã có bản chromium nào chưa."""
+    """Check whether any chromium build already exists in the ms-playwright folder."""
     if not browsers_dir.exists():
         return False
     return any(
@@ -34,20 +34,20 @@ def _setup_playwright_browsers_path():
     default_path = _default_playwright_browsers_path()
 
     if _has_chromium_installed(default_path):
-        # Máy đã có sẵn Chromium (cài qua "playwright install" bình thường trước đó)
-        # -> không set biến môi trường, để Playwright tự dùng default path.
-        logger.info(f"[Playwright] Dùng Chromium có sẵn tại: {default_path}")
+        # A system Chromium already exists (installed via "playwright install")
+        # -> do not set the env var; let Playwright use its default path.
+        logger.info(f"[Playwright] Using existing Chromium at: {default_path}")
         return
 
-    # Chưa có ở default path -> dùng bản portable cạnh exe
+    # Not at the default path -> use the portable build next to the executable
     portable_path = _get_base_dir() / "ms-playwright"
     os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(portable_path)
-    logger.info(f"[Playwright] Dùng bản portable tại: {portable_path}")
+    logger.info(f"[Playwright] Using portable build at: {portable_path}")
 
 
 _setup_playwright_browsers_path()
 
-# --- Chế độ chạy app bình thường ---
+# --- Normal app run mode ---
 import asyncio
 import traceback
 

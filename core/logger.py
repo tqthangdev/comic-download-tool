@@ -9,7 +9,7 @@ LOG_FILE = LOGS_DIR / "error.log"
 logger = logging.getLogger("ComicEngine")
 logger.setLevel(logging.ERROR)
 
-# Handler ghi log ra file trong thư mục logs (chỉ ghi khi có ERROR/CRITICAL)
+# File handler writes logs to a file in the logs folder (only ERROR/CRITICAL)
 file_handler = logging.FileHandler(LOG_FILE, encoding="utf-8")
 file_handler.setLevel(logging.ERROR)
 

@@ -11,5 +11,5 @@ qasync
 # Browser crawling
 playwright
 
-# Build (chỉ cần khi đóng gói exe, không bắt buộc để chạy app)
-# pyinstaller
+# Build (only needed to package the executable, not to run the app)
+pyinstaller

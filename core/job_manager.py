@@ -16,19 +16,19 @@ class Job:
     save_path: Path
     current_chap: int = field(default=None)
     status: str = field(default="waiting")
-    chapters: list = field(default=None)  # [{title, url, update_time}] từ scraper.py
-    referer: str = field(default=None)    # referer suy từ scraper (origin URL)
-    thumb: str = field(default=None)      # URL ảnh bìa từ scraper.py
+    chapters: list = field(default=None)  # [{title, url, update_time}] from scraper.py
+    referer: str = field(default=None)    # referer derived from scraper (origin URL)
+    thumb: str = field(default=None)      # cover image URL from scraper.py
 
 
 class JobManager:
 
     def __init__(self, db_path: Path = DB_PATH):
         db_path.parent.mkdir(parents=True, exist_ok=True)
-        # check_same_thread=False: executor sẽ gọi từ thread khác thread tạo connection
+        # check_same_thread=False: the executor calls from a different thread
         self.conn = sqlite3.connect(str(db_path), check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
-        # sqlite3 connection không an toàn khi nhiều thread cùng ghi -> cần lock
+        # sqlite3 connections are not thread-safe -> guard writes with a lock
         self._lock = threading.Lock()
         self._create_table()
         self._migrate()
@@ -75,7 +75,7 @@ class JobManager:
                 self.conn.commit()
 
     # ------------------------------------------------------------------
-    # CRUD (đồng bộ - giữ nguyên để dùng nội bộ / lúc khởi tạo, không hot path)
+    # CRUD (synchronous - kept for internal use / startup, not the hot path)
     # ------------------------------------------------------------------
 
     @staticmethod
@@ -134,6 +134,14 @@ class JobManager:
             )
             self.conn.commit()
 
+    def update_save_path(self, url: str, save_path: Path):
+        with self._lock:
+            self.conn.execute(
+                "UPDATE jobs SET save_path = ? WHERE url = ?",
+                (str(save_path), url),
+            )
+            self.conn.commit()
+
     def update_current_chap(self, url: str, chap_index: int):
         with self._lock:
             self.conn.execute(
@@ -184,8 +192,8 @@ class JobManager:
 
     def get_restorable_jobs(self) -> list[Job]:
         with self._lock:
-            # ORDER BY rowid để giữ đúng thứ tự thêm vào — restore về queue
-            # theo đúng thứ tự queue list.
+            # ORDER BY rowid to preserve insertion order — restore into the queue
+            # in the same order as the queue list.
             rows = self.conn.execute(
                 "SELECT * FROM jobs WHERE status IN ('waiting', 'paused', 'failed', 'running') ORDER BY rowid"
             ).fetchall()
@@ -203,8 +211,8 @@ class JobManager:
         ]
 
     # ------------------------------------------------------------------
-    # ASYNC WRAPPERS - dùng ở hot path (bên trong worker/download loop)
-    # để không block event loop chính (qasync dùng chung loop với GUI)
+    # ASYNC WRAPPERS - used in the hot path (inside the worker/download loop)
+    # so writes do not block the main event loop (qasync shares the loop with the GUI)
     # ------------------------------------------------------------------
 
     async def aupdate_status(self, url: str, status: str):

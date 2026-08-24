@@ -8,7 +8,7 @@ Output: {
     "thumb": ...,
     "referer": ...,
     "chapters": [
-        {"title": "Chapter 12", "url": "...", "update_time": "2 ngày trước"},
+        {"title": "Chapter 12", "url": "...", "update_time": "2 days ago"},
         ...
     ]
 }
@@ -28,15 +28,16 @@ from urllib.parse import urljoin, urlparse, unquote
 import requests
 from bs4 import BeautifulSoup, NavigableString
 
+from core.utils import CONFIG
+
 HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-        "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-    ),
+    "User-Agent": CONFIG["user_agent"],
     "Accept-Language": "vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7",
 }
 
 CHAPTER_REGEX = re.compile(r"\b(chapter|chương|chap|ch\.?)\s*[:\-]?\s*\d+(\.\d+)?", re.IGNORECASE)
+# Some sites (e.g. cmangax18) navigate chapters via onclick instead of <a href>
+ONCLICK_URL_RE = re.compile(r"location\.href\s*=\s*['\"]([^'\"]+)['\"]", re.IGNORECASE)
 DATE_REGEX = re.compile(
     r"(\d{1,2}[/\-.]\d{1,2}([/\-.]\d{2,4})?)"
     r"|(\d+\s?(phút|giờ|ngày|tuần|tháng|năm)\s?trước)"
@@ -53,7 +54,7 @@ SKIP_TAGS = {"script", "style", "head", "noscript", "template", "svg"}
 # ----------------------------------------------------------------------
 
 def get_referer(url: str) -> str:
-    """Lấy referer (origin) từ URL, vd https://example.com/a/b -> https://example.com"""
+    """Get the referer (origin) from a URL, e.g. https://example.com/a/b -> https://example.com"""
     parsed = urlparse(url)
     if not parsed.scheme or not parsed.netloc:
         return ""
@@ -85,14 +86,20 @@ def leaf_text(tag) -> str:
     return tag.get_text(strip=True)
 
 
-def find_nearest_link(tag):
-    """Walk up from tag to find the closest enclosing <a href>."""
+def get_element_url(tag, base_url):
+    """Walk up from tag: return the URL from the closest enclosing <a href>,
+    or from an onclick="location.href='...'" attribute (used by some sites
+    instead of an <a> link). Returns "" when none is found."""
     curr = tag
     while curr is not None and getattr(curr, "name", None) != "html":
         if curr.name == "a" and curr.get("href"):
-            return curr
+            return urljoin(base_url, curr["href"])
+        onclick = curr.get("onclick") or ""
+        m = ONCLICK_URL_RE.search(onclick)
+        if m:
+            return urljoin(base_url, m.group(1))
         curr = curr.parent
-    return None
+    return ""
 
 
 # ----------------------------------------------------------------------
@@ -100,8 +107,9 @@ def find_nearest_link(tag):
 # ----------------------------------------------------------------------
 
 def find_title(soup: BeautifulSoup, thumb_img) -> str:
-    # Priority: h1 khớp với og:title (dùng og:title làm mốc để chọn đúng h1,
-    # không return trực tiếp og:title) > h1 đầu tiên > <title> tag > thumb alt
+    # Priority: h1 matching og:title (use og:title as an anchor to pick the
+    # right h1, but do not return og:title directly) > first h1 > <title> tag >
+    # thumb alt
     og = soup.find("meta", property="og:title")
     og_content = og.get("content", "").strip() if og and og.get("content") else ""
 
@@ -175,20 +183,32 @@ def pick_best_group(leaves):
         groups.setdefault(group_key(tag), []).append(tag)
     if not groups:
         return []
+    # A real chapter list has mostly DISTINCT labels (Chapter 1, 2, 3...),
+    # while junk noise (reading history, comment mentions) repeats the same
+    # label many times. Rank by distinct-label ratio first so a 10-item junk
+    # group of repeated "Chapter 7" does not beat an 8-item real 0..7 list.
+    def rank(g):
+        texts = {leaf_text(t) for t in g}
+        return (len(texts) / len(g), len(g))
+    candidates = [g for g in groups.values() if len(g) >= 3 and len({leaf_text(t) for t in g}) >= 2]
+    if candidates:
+        return max(candidates, key=rank)
+    # Fallback: single-leaf stories, or nothing the ranking could separate
     best = max(groups.values(), key=len)
-    # Ưu tiên nhóm >= 2 (pattern lặp lại). Nếu chỉ có 1 leaf duy nhất khớp
-    # regex (truyện chỉ có 1 chapter), vẫn chấp nhận nó thay vì trả rỗng.
+    # Prefer groups with >= 2 leaves (recurring pattern). If only a single leaf
+    # matches the regex (a story with just one chapter), still accept it instead
+    # of returning an empty result.
     return best if len(best) >= 2 else (best if len(best) == 1 else [])
 
 
 def find_common_ancestor(elements):
-    """Tìm ancestor chung gần nhất (sâu nhất) của một danh sách phần tử."""
+    """Find the deepest common ancestor of a list of elements."""
     if not elements:
         return None
     chains = []
     for el in elements:
         chain = list(el.parents)
-        chain.reverse()  # root -> ... -> parent trực tiếp
+        chain.reverse()  # root -> ... -> direct parent
         chain.append(el)
         chains.append(chain)
     common = None
@@ -203,17 +223,17 @@ def find_common_ancestor(elements):
 
 def find_row(chapter_leaf, thumb_img):
     """
-    Từ chapter_leaf leo dần lên, tìm ancestor lặp lại (>=2 sibling CÙNG tag
-    VÀ CÙNG class) để dùng làm scope 'row'.
+    Walk up from chapter_leaf, looking for a repeating ancestor (>=2 siblings
+    with the SAME tag AND SAME class) to use as the 'row' scope.
 
-    Bỏ qua <td>/<th> vì trong <table>, các ô luôn lặp lại theo CỘT (>=2 td
-    trong mọi <tr>) chứ không phải theo dòng dữ liệu.
+    Skip <td>/<th> because inside a <table> cells always repeat per COLUMN
+    (>=2 td in every <tr>), not per data row.
 
-    So thêm class (không chỉ tag): nhiều site dùng <div class="item-name">
-    và <div class="item-time"> làm 2 cột con của <div class="item"> - cả
-    hai đều là tag 'div' nên nếu chỉ so tag sẽ dừng nhầm ngay ở cấp
-    item-name (vì nó có 1 sibling div khác - item-time). Yêu cầu class
-    trùng nhau mới tính là "bản ghi lặp lại" thật sự.
+    Also compare class (not just tag): many sites use <div class="item-name">
+    and <div class="item-time"> as two child columns of <div class="item"> -
+    both are 'div' tags, so comparing tag only would stop too early at the
+    item-name level (it has one other div sibling - item-time). Requiring a
+    matching class is what counts as a real repeating record.
     """
     SKIP_STOP_TAGS = {"td", "th"}
     curr = chapter_leaf
@@ -234,8 +254,8 @@ def find_row(chapter_leaf, thumb_img):
 
 
 def find_all_date_leaves(soup: BeautifulSoup):
-    """Quét TOÀN BỘ document (tương đương document.querySelectorAll('*')),
-    lấy mọi leaf khớp DATE_REGEX một lần duy nhất."""
+    """Scan the WHOLE document (equivalent to document.querySelectorAll('*')),
+    collecting every leaf matching DATE_REGEX exactly once."""
     leaves = []
     for tag in soup.find_all(True):
         if not is_leaf(tag):
@@ -247,13 +267,13 @@ def find_all_date_leaves(soup: BeautifulSoup):
 
 
 def find_time_in_row(row, chapter_leaf, all_date_leaves):
-    """Lọc trong all_date_leaves (đã quét * toàn document) những cái nằm
-    bên trong row (containment check), thay vì tự query lại theo row."""
+    """Filter all_date_leaves (already scanned over the whole document) down to
+    those contained inside row (containment check), instead of re-querying per row."""
     matches = []
     for tag in all_date_leaves:
         if tag is chapter_leaf:
             continue
-        # tag nằm trong row <=> row là một trong các ancestor của tag
+        # a tag is inside row <=> row is one of the tag's ancestors
         if row in tag.parents or tag is row:
             matches.append(leaf_text(tag))
     return matches
@@ -261,10 +281,10 @@ def find_time_in_row(row, chapter_leaf, all_date_leaves):
 
 def expand_to_full_pattern(regex_group, soup):
     """
-    regex_group chỉ dùng để XÁC ĐỊNH pattern (tag + class của leaf chapter).
-    Sau đó lấy TOÀN BỘ phần tử khớp pattern đó trong container chung,
-    bất kể text có khớp CHAPTER_REGEX hay không (vd '8.4: ...' thiếu tiền tố
-    'Chapter'/'Chap' vẫn phải được tính là 1 chapter).
+    regex_group is only used to DETERMINE the pattern (tag + class of the
+    chapter leaf). Then grab ALL elements matching that pattern inside the
+    shared container, regardless of whether their text matches CHAPTER_REGEX
+    (e.g. '8.4: ...' missing the 'Chapter'/'Chap' prefix must still count as a chapter).
     """
     if not regex_group:
         return []
@@ -286,24 +306,32 @@ def expand_to_full_pattern(regex_group, soup):
             if t.parent is not None and t.parent.name == parent_tag
         ]
 
-    # Chỉ giữ leaf thật sự (không có element con) và có text
+    # Keep only real leaves (no element children) that have text
     result = [t for t in candidates if is_leaf(t) and leaf_text(t)]
     return result if len(result) >= len(regex_group) else regex_group
 
 
 def _is_same_story(url: str, base_url: str) -> bool:
-    """True nếu url trỏ vào chapter của CÙNG truyện với base_url.
+    """True if url points to a chapter of the SAME story as base_url.
 
-    Chapter thật của truyện có href bắt đầu bằng đường dẫn truyện (base path),
-    vd base = https://site/truyen/abc -> chapter = https://site/truyen/abc/xyz.
-    Các link related/recommended trỏ sang /truyen/<truyen-khac>/... -> loại.
+    A real story chapter has an href starting with the story path (base path),
+    e.g. base = https://site/truyen/abc -> chapter = https://site/truyen/abc/xyz.
+    Related/recommended links pointing to another /truyen/<other>/... are dropped.
 
-    So sánh sau khi unquote: base_url có thể giữ dạng URL-encoded (%E5%B1%88...)
-    trong khi href trong trang dùng ký tự decode (屈服...) — phải chuẩn hóa
-    trước khi so prefix, không thì chapter thật bị loại nhầm.
+    Compare after unquote: base_url may stay URL-encoded (%E5%B1%88...) while
+    the in-page href uses decoded characters (屈服...) - normalize before the
+    prefix check, otherwise real chapters get wrongly filtered out.
+
+    Some sites (e.g. cmangax18) use album URLs like /album/<slug>-<albumid>
+    while chapters live under /album/<slug>/... - so also try the base with the
+    trailing numeric segment stripped.
     """
+    url = unquote(url)
     base = unquote(base_url).rstrip("/")
-    return unquote(url).startswith(base + "/")
+    if url.startswith(base + "/"):
+        return True
+    stripped = re.sub(r"-\d+$", "", base)
+    return bool(stripped) and stripped != base and url.startswith(stripped + "/")
 
 
 NAV_BUTTON_TEXTS = {
@@ -313,20 +341,20 @@ NAV_BUTTON_TEXTS = {
 
 
 def _chapter_text(a) -> str:
-    """Lấy text 'tên chapter' từ trong thẻ <a>: ưu tiên phần tử con có vẻ là
-    tiêu đề (text-ellipsis, có chữ cái, ngắn), fallback toàn bộ text của <a>."""
-    # Ưu tiên các phần tử con có class gợi ý tiêu đề
+    """Extract the 'chapter name' text from inside an <a>: prefer a child that
+    looks like a title (text-ellipsis, letters, short), fall back to the full <a> text."""
+    # Prefer child elements whose class suggests a title
     for sel in (".text-ellipsis", ".name", ".chapter-title", ".chap-name", ".title"):
         el = a.select_one(sel)
         if el:
             text = el.get_text(strip=True)
             if text:
                 return text
-    # Fallback: text leaf ngắn nhất có chữ cái (bỏ view count/số thống kê)
+    # Fallback: the shortest text leaf containing letters (skip view counts/stats)
     leaf_texts = []
     for el in a.find_all(True):
         if el.find_all(True):
-            continue  # không phải leaf
+            continue  # not a leaf
         text = el.get_text(strip=True)
         if text and any(ch.isalpha() for ch in text):
             leaf_texts.append(text)
@@ -336,20 +364,26 @@ def _chapter_text(a) -> str:
 
 
 def _links_same_story(soup: BeautifulSoup, base_url: str) -> list:
-    """Quét toàn bộ <a href>, giữ link cùng base path với truyện hiện tại,
-    kèm text tên chapter. Dùng làm fallback khi regex không tìm được chapter."""
+    """Scan every element with a link (<a href> or onclick navigation), keep
+    those on the same base path as the current story, together with the chapter
+    name text. Used as a fallback when the regex finds no chapters."""
     result = []
-    for a in soup.find_all("a", href=True):
-        url = urljoin(base_url, a["href"])
-        if not _is_same_story(url, base_url):
+    seen = set()
+    anchors = list(soup.find_all(href=True)) + list(soup.find_all(onclick=True))
+    for el in anchors:
+        if el in seen:
             continue
-        text = _chapter_text(a)
+        seen.add(el)
+        url = get_element_url(el, base_url)
+        if not url or not _is_same_story(url, base_url):
+            continue
+        text = _chapter_text(el)
         if not text:
             continue
-        # Lọc nút điều hướng ('Đọc từ đầu'/'Đọc mới nhất'...) — không phải chapter
+        # Filter navigation buttons ('read first'/'read latest'...) — not chapters
         if text.strip().lower() in NAV_BUTTON_TEXTS:
             continue
-        result.append({"text": text, "url": url, "element": a})
+        result.append({"text": text, "url": url, "element": el})
     return result
 
 
@@ -357,22 +391,21 @@ def find_chapters(soup: BeautifulSoup, base_url: str, thumb_img):
     leaves = find_chapter_leaves(soup)
     regex_group = pick_best_group(leaves)
     full_group = expand_to_full_pattern(regex_group, soup)
-    all_date_leaves = find_all_date_leaves(soup)  # quét * một lần cho toàn document
+    all_date_leaves = find_all_date_leaves(soup)  # scan the document once for all dates
 
-    # Lọc bỏ related/recommended: chỉ giữ leaf có link cùng base path với truyện.
-    # (VD damconuong: 6 leaf 'Chapter N' đều trỏ sang truyện khác -> loại hết.)
+    # Drop related/recommended: keep only leaves whose link shares the story base path.
+    # (e.g. damconuong: 6 'Chapter N' leaves all point to other stories -> dropped.)
     same_story = []
     for leaf in full_group:
-        link = find_nearest_link(leaf)
-        url = urljoin(base_url, link["href"]) if link is not None else ""
+        url = get_element_url(leaf, base_url)
         if url and _is_same_story(url, base_url):
             same_story.append(leaf)
 
-    # Fallback: regex không ra chapter thật (tên chapter không có tiền tố
-    # 'Chapter/Chap', vd damconuong) -> quét mọi <a> cùng base path.
+    # Fallback: regex finds no real chapter (chapter names without a
+    # 'Chapter/Chap' prefix, e.g. damconuong) -> scan every <a> on the base path.
     if not same_story:
         candidates = _links_same_story(soup, base_url)
-        # Lọc bỏ các nút điều hướng 'Đọc từ đầu'/'Đọc mới nhất' trỏ trùng chapter
+        # Drop navigation buttons ('read first'/'read latest') pointing at the same chapter
         chapters = []
         seen_urls = set()
         for c in candidates:
@@ -394,8 +427,7 @@ def find_chapters(soup: BeautifulSoup, base_url: str, thumb_img):
 
     for leaf in same_story:
         name = leaf_text(leaf)
-        link = find_nearest_link(leaf)
-        url = urljoin(base_url, link["href"]) if link is not None else ""
+        url = get_element_url(leaf, base_url)
 
         if url and url in seen_urls:
             continue
@@ -405,9 +437,9 @@ def find_chapters(soup: BeautifulSoup, base_url: str, thumb_img):
         row = find_row(leaf, thumb_img)
         update_times = find_time_in_row(row, leaf, all_date_leaves)
 
-        # Bỏ qua chapter không có URL: đây thường là "nhiễu" từ các widget
-        # khác trên trang (lịch sử đọc, đề xuất...) dùng chung tag+class
-        # với chapter thật nhưng không nằm trong <a href> nào -> không dùng được.
+        # Skip a chapter that has no URL: this is usually 'noise' from other widgets
+        # on the page (reading history, suggestions...) that share the same tag+class
+        # as real chapters but are not inside any <a href> -> unusable.
         if not url:
             continue
 
@@ -425,10 +457,10 @@ def find_chapters(soup: BeautifulSoup, base_url: str, thumb_img):
 # ----------------------------------------------------------------------
 
 def _extract_from_soup(soup: BeautifulSoup, base_url: str, debug: bool = False) -> dict:
-    """Pipeline chính: chạy các heuristic trên soup, trả về đúng contract
-    mà app tiêu thụ (engine + GUI):
+    """Main pipeline: run the heuristics on the soup and return the exact
+    contract the app consumes (engine + GUI):
         {"title", "thumb", "referer", "chapters": [{"title", "url", "update_time"}]}
-    update_time luôn là string (None -> "").
+    update_time is always a string (None -> "").
     """
     thumb = find_thumb(soup, base_url)
     title = find_title(soup, thumb["element"])
@@ -457,8 +489,8 @@ def _extract_from_soup(soup: BeautifulSoup, base_url: str, debug: bool = False) 
 
 
 def scrape_from_html(html: str, url: str, debug: bool = False) -> dict:
-    """Entry không network: chạy pipeline trên HTML string đã lấy sẵn
-    (dùng cho page.content() của Playwright hoặc dump offline)."""
+    """Network-free entry point: run the pipeline on an already-fetched HTML
+    string (used for Playwright's page.content() or offline dumps)."""
     soup = BeautifulSoup(html, "lxml")
     return _extract_from_soup(soup, url, debug)
 
@@ -468,10 +500,10 @@ def scrape(url: str, debug: bool = False) -> dict:
 
 
 # ----------------------------------------------------------------------
-# 4. Chapter images (heuristic — thay cho image_selector)
+# 4. Chapter images (heuristic — replaces image_selector)
 # ----------------------------------------------------------------------
 
-# Class/pattern đánh dấu ảnh RÁC (logo, icon, quảng cáo, avatar...) — loại bỏ
+# Class/pattern marking JUNK images (logo, icon, ad, avatar...) to be removed
 BAD_IMG_CLASS_PARTS = (
     "logo", "icon", "avatar", "banner", "ad-", "ads", "advert", "social",
     "share", "emoji", "sponsor", "watermark", "placeholder",
@@ -480,7 +512,7 @@ BAD_IMG_URL_PARTS = (
     "logo", "icon", "avatar", "banner", "/ads/", "advert", "sponsor",
     "placeholder", "emoji",
 )
-# Pattern URL gợi ý ảnh nội dung chapter (CDN chuyên cho manga/comic)
+# URL pattern suggesting content images (manga/comic CDN)
 GOOD_IMG_URL_PARTS = (
     "/manga-images/", "/images/data/", "/chapters/", "/chapter/", "/comics/",
     "/storage/chapter", "/content/images/",
@@ -488,8 +520,8 @@ GOOD_IMG_URL_PARTS = (
 
 
 def _img_src(img) -> str:
-    """Lấy src thật của <img>, ưu tiên data-src (lazy-load) rồi src.
-    Bỏ data:image placeholder (ảnh lazy chưa nạp)."""
+    """Get the real src of an <img>, preferring data-src (lazy-load) over src.
+    Drop data:image placeholders (lazy images not yet loaded)."""
     src = (
         img.get("data-src")
         or img.get("data-original")
@@ -503,11 +535,11 @@ def _img_src(img) -> str:
 
 
 def find_chapter_images(html: str, base_url: str) -> list:
-    """Heuristic nhận diện ảnh chapter từ HTML trang chapter.
+    """Heuristic to detect chapter images from a chapter page's HTML.
 
-    Không cần image_selector: quét toàn bộ <img>, lọc ảnh rác
-    (logo/icon/ads/avatar theo class + URL), ưu tiên pattern URL CDN manga,
-    dedupe theo URL tuyệt đối. Trả list URL ảnh (đã urljoin)."""
+    No image_selector needed: scan every <img>, filter junk images
+    (logo/icon/ads/avatar by class + URL), prefer manga CDN URL patterns,
+    dedupe by absolute URL. Returns a list of image URLs (already urljoined)."""
     soup = BeautifulSoup(html, "lxml")
     urls = []
     seen = set()
@@ -518,14 +550,14 @@ def find_chapter_images(html: str, base_url: str) -> list:
             continue
         url = urljoin(base_url, src)
 
-        # Bỏ ảnh rác theo class
+        # Drop junk images by class
         classes = " ".join(img.get("class") or []).lower()
         if any(part in classes for part in BAD_IMG_CLASS_PARTS):
             continue
-        # Bỏ ảnh rác theo URL
+        # Drop junk images by URL
         if any(part in url.lower() for part in BAD_IMG_URL_PARTS):
             continue
-        # Bỏ ảnh không phải http(s) (vd data:, javascript:)
+        # Drop non-http(s) images (e.g. data:, javascript:)
         if not url.startswith(("http://", "https://")):
             continue
 
@@ -534,8 +566,8 @@ def find_chapter_images(html: str, base_url: str) -> list:
         seen.add(url)
         urls.append(url)
 
-    # Nếu có pattern URL nội dung rõ ràng -> chỉ giữ nhóm đó (loại ảnh trang
-    # trí/logo CDN lẫn vào). Ngược lại giữ tất cả đã lọc rác.
+    # If there is a clear content URL pattern, keep only that group (filtering out
+    # decorative/CDN logo images that slipped in). Otherwise keep all already-filtered.
     good = [u for u in urls if any(part in u.lower() for part in GOOD_IMG_URL_PARTS)]
     return good if good else urls
 
@@ -548,13 +580,13 @@ def main():
     args = parser.parse_args()
 
     if not urlparse(args.url).scheme:
-        print("URL phải bao gồm scheme, vd: https://example.com/...", file=sys.stderr)
+        print("URL must include a scheme, e.g. https://example.com/...", file=sys.stderr)
         sys.exit(1)
 
     try:
         data = scrape(args.url, debug=args.debug)
     except requests.RequestException as e:
-        print(f"Lỗi khi tải trang: {e}", file=sys.stderr)
+        print(f"Error loading page: {e}", file=sys.stderr)
         sys.exit(1)
 
     output = json.dumps(data, ensure_ascii=False, indent=2)
@@ -563,7 +595,7 @@ def main():
     if args.json_out:
         with open(args.json_out, "w", encoding="utf-8") as f:
             f.write(output)
-        print(f"\n[Đã lưu kết quả vào {args.json_out}]", file=sys.stderr)
+        print(f"\n[Saved result to {args.json_out}]", file=sys.stderr)
 
 
 if __name__ == "__main__":

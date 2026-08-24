@@ -14,8 +14,7 @@ a = Analysis(
     datas=[
         ('assets', 'assets'),
         ('config.json', '.'),
-        ('install.bat', '.'),
-        (str(playwright_driver_path), 'playwright/driver'),   # <-- bắt buộc để lệnh install chạy được
+        (str(playwright_driver_path), 'playwright/driver'),   # bắt buộc để playwright driver chạy được
     ],
     hiddenimports=[
         'playwright.async_api',
@@ -42,7 +41,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name='ComicEnginePro',
+    name='ComicDownloadTool',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -63,8 +62,5 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=[],
-    name='ComicEnginePro',
+    name='ComicDownloadTool',
 )
-
-https://hentaivnreal.com/truyen/manga-4
-https://hentaivnreal.com/truyen/tan-lang-ve
