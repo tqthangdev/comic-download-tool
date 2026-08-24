@@ -439,6 +439,10 @@ class MainWindow(QWidget):
             if not self._check_save_path_exists():
                 return
             self._mark_queue_starting()
+            # Re-apply the current save path (from the path input) so a changed
+            # folder is used instead of the old one captured at Add Queue time.
+            base_path = self.left.path_input.text().strip()
+            await self.engine.sync_paths(base_path)
             await self.engine.start()
             self.right.btn_pause.setText(tr("pause"))
         self._update_pause_button()
@@ -460,6 +464,10 @@ class MainWindow(QWidget):
             return
         self._mark_queue_starting()
         self.right.btn_pause.setText(tr("pause"))
+        # Re-apply the current save path (from the path input) so a changed
+        # folder is used instead of the old one captured at Add Queue time.
+        base_path = self.left.path_input.text().strip()
+        await self.engine.sync_paths(base_path)
         await self.engine.start()
         self._update_pause_button()
 

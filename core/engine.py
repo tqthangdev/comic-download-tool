@@ -129,6 +129,26 @@ class Engine(QObject):
             restored.append(job)
         return restored
 
+    async def sync_paths(self, base_path: str = None):
+        """Apply the current save path (from the path input) to every job still
+        waiting in the queue, so changing the target folder before Start takes
+        effect instead of using the old path captured at Add Queue time."""
+        if not base_path:
+            return
+
+        # Drain the queue, update each pending job's path, then put them back.
+        pending = []
+        while not self.queue.empty():
+            job = self.queue.get_nowait()
+            new_path = Path(base_path) / safe_filename(job.title)
+            if job.save_path != new_path:
+                job.save_path = new_path
+                self.db.update_save_path(job.url, job.save_path)
+            pending.append(job)
+
+        for job in pending:
+            self.queue.put_nowait(job)
+
     async def worker(self, wid):
         while self.running:
             try:
