@@ -1,14 +1,16 @@
+import json
+import os
+import re
 import sys
 from pathlib import Path
-import re
-from urllib.parse import urlparse, parse_qs, unquote
+from urllib.parse import parse_qs, unquote, urlparse
 
 
 def safe_filename(name: str, max_length=80):
     # 1. Strip characters forbidden by the OS
     name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "", name)
 
-    # 2. Truncate long names (no longer appends "..." )
+    # 2. Truncate long names
     if len(name) > max_length:
         name = name[:max_length]
 
@@ -30,35 +32,87 @@ def is_download_exists(path: Path) -> bool:
 
 
 def resolve_ddg_proxy(url: str) -> str:
-    """If this is an external-content.duckduckgo.com/iu/?u=... proxy link, return the real image URL."""
+    """Resolve DuckDuckGo image proxy URLs to the original image URL."""
     parsed = urlparse(url)
-    if parsed.netloc == "external-content.duckduckgo.com" and parsed.path == "/iu/":
+
+    if (
+        parsed.netloc == "external-content.duckduckgo.com"
+        and parsed.path == "/iu/"
+    ):
         qs = parse_qs(parsed.query)
+
         if "u" in qs:
             return unquote(qs["u"][0])
+
     return url
 
 
 def get_base_dir() -> Path:
-    """Root folder of the app — next to the executable when built, or the project folder when running in dev."""
+    """Return the directory containing the executable or project root."""
     if getattr(sys, "frozen", False):
         return Path(sys.executable).parent
+
     return Path(__file__).parent.parent
 
 
 def get_resource_path(relative_path: str) -> Path:
+    """Return the path to a bundled/read-only application resource."""
     if getattr(sys, "frozen", False):
-        base_path = Path(getattr(sys, "_MEIPASS", None) or Path(sys.executable).parent)
+        base_path = Path(
+            getattr(sys, "_MEIPASS", None)
+            or Path(sys.executable).parent
+        )
     else:
         base_path = Path(__file__).parent.parent
+
     return base_path / relative_path
 
 
-BASE_DIR = get_base_dir()
-DATA_DIR = BASE_DIR / "data"
-DATA_DIR.mkdir(exist_ok=True)
+def get_user_data_dir() -> Path:
+    """
+    Return a writable directory for application data.
 
-import json
+    Linux:
+        $XDG_DATA_HOME/ComicDownloadTool
+        or ~/.local/share/ComicDownloadTool
+
+    Windows:
+        %LOCALAPPDATA%/ComicDownloadTool
+
+    macOS:
+        ~/Library/Application Support/ComicDownloadTool
+    """
+    if sys.platform == "win32":
+        base_path = Path(
+            os.environ.get(
+                "LOCALAPPDATA",
+                Path.home() / "AppData" / "Local",
+            )
+        )
+
+    elif sys.platform == "darwin":
+        base_path = Path.home() / "Library" / "Application Support"
+
+    else:
+        base_path = Path(
+            os.environ.get(
+                "XDG_DATA_HOME",
+                Path.home() / ".local" / "share",
+            )
+        )
+
+    data_dir = base_path / "ComicDownloadTool"
+    data_dir.mkdir(parents=True, exist_ok=True)
+
+    return data_dir
+
+
+BASE_DIR = get_base_dir()
+
+# Writable application data directory.
+DATA_DIR = get_user_data_dir()
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+
 
 DEFAULT_CONFIG = {
     "max_workers": 10,
@@ -75,61 +129,141 @@ DEFAULT_CONFIG = {
 }
 
 
-def load_config() -> dict:
-    config_path = get_resource_path("config.json") if not getattr(sys, "frozen", False) \
-        else get_base_dir() / "config.json"
+def get_config_path() -> Path:
+    """Return the writable user configuration path."""
+    return DATA_DIR / "config.json"
 
-    # config.json must be readable/writable -> always prefer the copy next to the
-    # executable/base dir, never the read-only copy from the bundle
-    config_path = get_base_dir() / "config.json"
+
+def load_config() -> dict:
+    """
+    Load configuration from the writable user data directory.
+
+    A bundled config.json is used as the initial template when no
+    user configuration exists yet.
+    """
+    config_path = get_config_path()
+    bundled_config_path = get_resource_path("config.json")
 
     config = DEFAULT_CONFIG.copy()
 
+    # Existing user configuration
     if config_path.exists() and config_path.stat().st_size > 0:
         try:
             with open(config_path, "r", encoding="utf-8") as f:
                 user_config = json.load(f)
-            config.update({k: v for k, v in user_config.items() if v not in (None, "")})
-            # Fill in any missing keys (e.g. new fields added later)
+
+            config.update(
+                {
+                    k: v
+                    for k, v in user_config.items()
+                    if v not in (None, "")
+                }
+            )
+
+            # Add newly introduced default fields
             if set(DEFAULT_CONFIG) - set(user_config):
                 try:
                     with open(config_path, "w", encoding="utf-8") as f:
-                        json.dump(config, f, indent=4, ensure_ascii=False)
+                        json.dump(
+                            config,
+                            f,
+                            indent=4,
+                            ensure_ascii=False,
+                        )
                 except Exception as e:
                     from core.logger import logger
-                    logger.error(f"[config] Failed to write missing default fields: {e}")
+
+                    logger.error(
+                        f"[config] Failed to update config.json: {e}"
+                    )
+
         except Exception as e:
             from core.logger import logger
-            logger.error(f"[config] Error reading config.json, using defaults: {e}")
-            # Corrupt file -> rewrite it with all default fields
+
+            logger.error(
+                f"[config] Error reading config.json, using defaults: {e}"
+            )
+
             try:
                 with open(config_path, "w", encoding="utf-8") as f:
-                    json.dump(config, f, indent=4, ensure_ascii=False)
+                    json.dump(
+                        config,
+                        f,
+                        indent=4,
+                        ensure_ascii=False,
+                    )
             except Exception:
                 pass
+
+    # No user config yet
     else:
-        # No file yet -> create a sample file with defaults for easy editing
+        # If the bundled config exists, use it as the initial config.
+        if bundled_config_path.exists():
+            try:
+                with open(
+                    bundled_config_path,
+                    "r",
+                    encoding="utf-8",
+                ) as f:
+                    bundled_config = json.load(f)
+
+                config.update(
+                    {
+                        k: v
+                        for k, v in bundled_config.items()
+                        if v not in (None, "")
+                    }
+                )
+
+            except Exception as e:
+                from core.logger import logger
+
+                logger.error(
+                    f"[config] Error reading bundled config.json: {e}"
+                )
+
+        # Create writable user config
         try:
             with open(config_path, "w", encoding="utf-8") as f:
-                json.dump(config, f, indent=4, ensure_ascii=False)
+                json.dump(
+                    config,
+                    f,
+                    indent=4,
+                    ensure_ascii=False,
+                )
+
         except Exception as e:
             from core.logger import logger
-            logger.error(f"[config] Failed to create default config.json: {e}")
+
+            logger.error(
+                f"[config] Failed to create config.json: {e}"
+            )
 
     return config
 
 
 def save_config(config: dict) -> bool:
-    """Write the current config down to config.json (next to the exe/base dir).
-    Returns True on success."""
-    config_path = get_base_dir() / "config.json"
+    """Save configuration to the writable user data directory."""
+    config_path = get_config_path()
+
     try:
         with open(config_path, "w", encoding="utf-8") as f:
-            json.dump(config, f, indent=4, ensure_ascii=False)
+            json.dump(
+                config,
+                f,
+                indent=4,
+                ensure_ascii=False,
+            )
+
         return True
+
     except Exception as e:
         from core.logger import logger
-        logger.error(f"[config] Failed to write config.json: {e}")
+
+        logger.error(
+            f"[config] Failed to write config.json: {e}"
+        )
+
         return False
 
 
