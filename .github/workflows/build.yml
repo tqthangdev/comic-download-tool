@@ -65,8 +65,8 @@ jobs:
           echo "=== Config ==="
           ls -la config.json
 
-          echo "=== Spec ==="
-          ls -la run.spec
+          echo "=== Application ==="
+          ls -la run.py
 
 
       # ==========================================
@@ -75,6 +75,107 @@ jobs:
 
       - name: Install dependencies
         run: python -m pip install -r requirements.txt
+
+
+      # ==========================================
+      # CREATE PYINSTALLER SPEC
+      # ==========================================
+
+      - name: Create PyInstaller spec
+        shell: bash
+        run: |
+          cat > run.spec <<'EOF'
+          from pathlib import Path
+
+          import playwright
+
+          block_cipher = None
+
+          # Resolve paths relative to the spec file location
+          BASE_DIR = Path(SPECPATH)
+
+          # Locate the actual Playwright driver directory
+          PLAYWRIGHT_DRIVER_PATH = Path(playwright.__file__).parent / "driver"
+
+          a = Analysis(
+              [str(BASE_DIR / "run.py")],
+              pathex=[
+                  str(BASE_DIR),
+              ],
+              binaries=[],
+              datas=[
+                  # Bundle the entire assets/ directory
+                  (
+                      str(BASE_DIR / "assets"),
+                      "assets",
+                  ),
+
+                  # Bundle config.json
+                  (
+                      str(BASE_DIR / "config.json"),
+                      ".",
+                  ),
+
+                  # Bundle the Playwright driver
+                  (
+                      str(PLAYWRIGHT_DRIVER_PATH),
+                      "playwright/driver",
+                  ),
+              ],
+              hiddenimports=[
+                  "playwright.async_api",
+                  "playwright.__main__",
+                  "qasync",
+                  "aiohttp",
+                  "bs4",
+                  "lxml",
+              ],
+              hookspath=[],
+              hooksconfig={},
+              runtime_hooks=[],
+              excludes=[],
+              win_no_prefer_redirects=False,
+              win_private_assemblies=False,
+              cipher=block_cipher,
+              noarchive=False,
+          )
+
+          pyz = PYZ(
+              a.pure,
+              a.zipped_data,
+              cipher=block_cipher,
+          )
+
+          exe = EXE(
+              pyz,
+              a.scripts,
+              [],
+              exclude_binaries=True,
+              name="ComicDownloadTool",
+              debug=False,
+              bootloader_ignore_signals=False,
+              strip=False,
+              upx=True,
+              console=False,
+              icon=str(BASE_DIR / "assets" / "icon.ico"),
+              disable_windowed_traceback=False,
+              argv_emulation=False,
+              target_arch=None,
+              codesign_identity=None,
+              entitlements_file=None,
+          )
+
+          coll = COLLECT(
+              exe,
+              a.binaries,
+              a.zipfiles,
+              a.datas,
+              strip=False,
+              upx=True,
+              upx_exclude=[],
+              name="ComicDownloadTool",
+          )
+          EOF
 
 
       # ==========================================
@@ -137,7 +238,7 @@ jobs:
 
 
       # ==========================================
-      # VERIFY FINAL PYINSTALLER OUTPUT
+      # VERIFY FINAL APPLICATION OUTPUT
       # ==========================================
 
       - name: Verify final application output
@@ -196,7 +297,7 @@ jobs:
           # Copy the complete PyInstaller application
           cp -a dist/ComicDownloadTool/. "$APPDIR/usr/bin/"
 
-          # Find the bundled icon
+          # Locate the bundled application icon
           ICON_PATH=""
 
           if [ -f "$APPDIR/usr/bin/assets/icon.png" ]; then
@@ -207,20 +308,22 @@ jobs:
 
           if [ -z "$ICON_PATH" ]; then
             echo "ERROR: icon.png was not found in the PyInstaller output."
+            echo "=== Application files ==="
             find "$APPDIR/usr/bin" -type f -print | sort
             exit 1
           fi
 
           echo "Using icon: $ICON_PATH"
 
-          # Copy icon to AppImage standard locations
+          # AppImage root icon
           cp "$ICON_PATH" \
             "$APPDIR/comicdownloadtool.png"
 
+          # Standard application icon location
           cp "$ICON_PATH" \
             "$APPDIR/usr/share/icons/hicolor/256x256/apps/comicdownloadtool.png"
 
-          # Create desktop entry
+          # Desktop entry
           cat > "$APPDIR/comicdownloadtool.desktop" <<'EOF'
           [Desktop Entry]
           Type=Application
@@ -232,7 +335,7 @@ jobs:
           Categories=Utility;
           EOF
 
-          # Create AppRun
+          # AppRun launcher
           cat > "$APPDIR/AppRun" <<'EOF'
           #!/bin/sh
 
@@ -281,10 +384,10 @@ jobs:
 
 
       # ==========================================
-      # UPLOAD WINDOWS BUILD
+      # UPLOAD WINDOWS APPLICATION
       # ==========================================
 
-      - name: Upload Windows build
+      - name: Upload Windows application
         if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4
         with:
@@ -322,68 +425,6 @@ jobs:
 
 
       # ==========================================
-      # DOWNLOAD WINDOWS BUILD
-      # ==========================================
-
-      - name: Download Windows build
-        uses: actions/download-artifact@v4
-        with:
-          name: ComicDownloadTool-windows
-          path: release/windows
-
-
-      # ==========================================
-      # VERIFY WINDOWS EXE
-      # ==========================================
-
-      - name: Verify Windows executable
-        shell: bash
-        run: |
-          set -e
-
-          echo "=== Windows files ==="
-          find release/windows -maxdepth 5 -type f -print | sort
-
-          echo "=== EXE files ==="
-          find release/windows \
-            -type f \
-            -iname "*.exe" \
-            -print
-
-
-      # ==========================================
-      # ARCHIVE WINDOWS BUILD
-      # ==========================================
-
-      - name: Archive Windows build
-        shell: bash
-        run: |
-          set -e
-
-          cd release/windows
-
-          zip -r \
-            ../../ComicDownloadTool-windows.zip \
-            .
-
-
-      # ==========================================
-      # VERIFY RELEASE FILES
-      # ==========================================
-
-      - name: Check release files
-        shell: bash
-        run: |
-          set -e
-
-          echo "=== Linux AppImage ==="
-          ls -lh release/ComicDownloadTool.AppImage
-
-          echo "=== Windows ZIP ==="
-          ls -lh ComicDownloadTool-windows.zip
-
-
-      # ==========================================
       # CREATE GITHUB RELEASE
       # ==========================================
 
@@ -392,5 +433,4 @@ jobs:
         with:
           files: |
             release/ComicDownloadTool.AppImage
-            ComicDownloadTool-windows.zip
           generate_release_notes: true
