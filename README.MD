@@ -297,64 +297,6 @@ Logs are useful when diagnosing:
 * Timeout errors
 * Unexpected website changes
 
-## Building a Standalone Executable
-
-The project contains a PyInstaller specification:
-
-```text
-run.spec
-```
-
-PyInstaller is **not cross-platform**: you must build on the same OS that
-will run the executable.
-
-> **Note:** the built package includes Playwright's **driver** but not the
-> browser. Chromium must be bundled into the output folder (see below) so the
-> app can run on machines that do not have Playwright installed globally.
-
-**Linux / macOS** — after running `./setup.sh`, build from the project root:
-
-```bash
-.venv/bin/python -m PyInstaller run.spec --noconfirm
-```
-
-Then bundle Chromium into the output folder so the app is self-contained:
-
-```bash
-PLAYWRIGHT_BROWSERS_PATH="$PWD/dist/ComicDownloadTool/ms-playwright" \
-    .venv/bin/python -m playwright install chromium
-```
-
-Output: `dist/ComicDownloadTool/`.
-
-**Windows** — after running `setup.ps1`, build from the project root (PowerShell):
-
-```powershell
-.\.venv\Scripts\python.exe -m PyInstaller run.spec --noconfirm
-```
-
-Then bundle Chromium into the output folder:
-
-```powershell
-$env:PLAYWRIGHT_BROWSERS_PATH="$PWD\dist\ComicDownloadTool\ms-playwright"
-.\.venv\Scripts\python.exe -m playwright install chromium
-```
-
-Output: `dist\ComicDownloadTool\`.
-
-Alternatively, the **GitHub Actions workflow (`.github/workflows/build.yml`)**
-does all of this automatically: it builds on both Linux and Windows, bundles
-Chromium into each output folder, uploads the artifacts, and — when a `v*`
-tag is pushed — creates a GitHub Release containing the `.tar.gz` (Linux) and
-`.zip` (Windows) archives.
-
-When distributing, copy the **entire** output folder (`ComicDownloadTool/`),
-not just the executable. On first run the app looks for a portable
-`ms-playwright/` folder next to the executable, otherwise it falls back to the
-system-default Chromium location.
-
-The generated build artifacts should not be committed to Git.
-
 ## Development
 
 Recommended project workflow:
