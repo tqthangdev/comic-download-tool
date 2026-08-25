@@ -3,20 +3,14 @@ from pathlib import Path
 
 import playwright
 
-
-# ==========================================
-# PATHS
-# ==========================================
-
-BASE_DIR = Path(__file__).resolve().parent
-PLAYWRIGHT_DRIVER_PATH = Path(playwright.__file__).parent / "driver"
-
 block_cipher = None
 
+# PyInstaller is executed from the project root in GitHub Actions
+BASE_DIR = Path.cwd()
 
-# ==========================================
-# ANALYSIS
-# ==========================================
+# Locate the actual Playwright driver directory
+PLAYWRIGHT_DRIVER_PATH = Path(playwright.__file__).parent / "driver"
+
 
 a = Analysis(
     [str(BASE_DIR / "run.py")],
@@ -25,20 +19,19 @@ a = Analysis(
     ],
     binaries=[],
     datas=[
-        # Bundle toàn bộ assets/ vào:
-        # dist/ComicDownloadTool/assets/
+        # Bundle the entire assets/ directory
         (
             str(BASE_DIR / "assets"),
             "assets",
         ),
 
-        # Bundle config.json vào root output
+        # Bundle config.json
         (
             str(BASE_DIR / "config.json"),
             ".",
         ),
 
-        # Bundle Playwright Python driver
+        # Bundle the Playwright driver
         (
             str(PLAYWRIGHT_DRIVER_PATH),
             "playwright/driver",
@@ -63,20 +56,12 @@ a = Analysis(
 )
 
 
-# ==========================================
-# PYZ
-# ==========================================
-
 pyz = PYZ(
     a.pure,
     a.zipped_data,
     cipher=block_cipher,
 )
 
-
-# ==========================================
-# EXECUTABLE
-# ==========================================
 
 exe = EXE(
     pyz,
@@ -89,10 +74,7 @@ exe = EXE(
     strip=False,
     upx=True,
     console=False,
-
-    # Windows executable icon
     icon=str(BASE_DIR / "assets" / "icon.ico"),
-
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
@@ -100,10 +82,6 @@ exe = EXE(
     entitlements_file=None,
 )
 
-
-# ==========================================
-# COLLECT
-# ==========================================
 
 coll = COLLECT(
     exe,
