@@ -4,6 +4,39 @@
 
 The project separates crawling, extraction, downloading, job management, and GUI components so that new comic websites can be integrated without modifying the core engine.
 
+## Download
+
+Prebuilt standalone builds are published as **GitHub Releases** — no Python or
+package installation required on the target machine.
+
+### Get the latest build
+
+1. Go to the [Releases](https://github.com/tqthangdev/comic-download-tool/releases) page.
+2. Pick the newest release (tagged `v*`).
+3. Download the archive for your OS:
+   * **`ComicDownloadTool-windows.zip`** — Windows
+   * **`ComicDownloadTool-linux.tar.gz`** — Linux
+4. Extract the archive and run the launcher inside:
+   * Windows — double-click `ComicDownloadTool.exe`
+   * Linux — run `./ComicDownloadTool` from a terminal (or right-click → *Run* in the file manager)
+
+> **No dependencies needed:** each archive bundles the app, Playwright's driver,
+> and Chromium (`ms-playwright/`). It is fully self-contained.
+
+### No release yet? Build it yourself
+
+Releases are created automatically by [GitHub Actions](#building-a-standalone-executable)
+when a `v*` tag is pushed. If the project has no release yet, you can either:
+
+* **Build from source** — see [Building a Standalone Executable](#building-a-standalone-executable).
+* Or grab the `dist/ComicDownloadTool` **artifact** from the latest workflow run
+  (Actions → workflow → *Artifacts*), which is the same folder the release would contain.
+
+### Keeping up to date
+
+Watch the repo or check the Release page occasionally for new builds containing
+bug fixes and new extractor support.
+
 ## Features
 
 * Heuristic scraper (no per-site configuration)
