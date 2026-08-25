@@ -60,7 +60,14 @@ from core.engine import Engine
 from core.utils import CONFIG
 
 def main():
+    from PyQt6.QtGui import QIcon
+
     app = QApplication(sys.argv)
+
+    # Đặt icon cho app/taskbar (hoạt động cả khi dev lẫn khi đã build)
+    icon_path = _get_base_dir() / "assets" / "icon.png"
+    if icon_path.exists():
+        app.setWindowIcon(QIcon(str(icon_path)))
 
     loop = QEventLoop(app)
     asyncio.set_event_loop(loop)

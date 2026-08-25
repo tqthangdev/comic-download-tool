@@ -1,11 +1,12 @@
 import asyncio
+import sys
 from pathlib import Path
 import time
 
 import requests
 from qasync import asyncSlot
 
-from PyQt6.QtGui import QPixmap, QCursor
+from PyQt6.QtGui import QPixmap, QCursor, QIcon
 from PyQt6.QtWidgets import QApplication, QWidget, QHBoxLayout, QMessageBox, QPushButton
 from PyQt6.QtCore import QSettings, Qt
 
@@ -19,6 +20,12 @@ class MainWindow(QWidget):
 
     def __init__(self, engine):
         super().__init__()
+
+        # Đặt icon cho cửa sổ chính (hoạt động cả khi dev lẫn khi đã build)
+        base = Path(sys.executable).parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent.parent
+        icon_path = base / "assets" / "icon.png"
+        if icon_path.exists():
+            self.setWindowIcon(QIcon(str(icon_path)))
 
         logger.info("GUI INIT OK")
 

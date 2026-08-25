@@ -21,6 +21,10 @@ ENV/
 
 vendor/
 
+# Portable Python downloaded by setup.ps1 (chỉ dùng khi máy không có Python)
+
+python/
+
 # Python tooling
 
 .pytest_cache/

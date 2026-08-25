@@ -48,10 +48,11 @@ Comic Download Tool
 │   └── error.log           # Application error log
 │
 ├── config.json             # Application configuration
-├── install.py              # Auto installer (venv + deps + Chromium)
 ├── requirements.txt        # Python dependencies
 ├── run.py                  # Application entry point
 ├── run.spec               # PyInstaller build specification
+├── setup.sh                # Auto installer (Linux / macOS)
+├── setup.ps1               # Auto installer (Windows)
 ├── start.sh                # Click-to-run launcher (Linux / macOS)
 └── start.bat               # Click-to-run launcher (Windows)
 ```
@@ -64,22 +65,33 @@ Comic Download Tool
 
 ## Installation
 
-The easiest way is to use the built-in auto installer. It creates a virtual
+The easiest way is to use the built-in setup script. It creates a virtual
 environment (with a fallback that installs packages into the project's `vendor/`
 folder if your system does not support `venv`), installs the dependencies from
 `requirements.txt`, and downloads Chromium for Playwright into the project's
-`ms-playwright/` folder — everything stays inside the project directory:
+`ms-playwright/` folder — everything stays inside the project directory.
+
+**Linux / macOS:**
 
 ```bash
-python install.py
+./setup.sh
 ```
 
-Options:
+**Windows (PowerShell):**
 
-| Option                    | Description                                                                  |
-| -----------------------   | ----------------------------------------------------------------------------- |
-| `--skip-browsers`         | Skip downloading Chromium (packages only)                                     |
-| `--no-venv`               | Install packages into `vendor/`, skip the venv                                |
+```powershell
+powershell -ExecutionPolicy Bypass -File setup.ps1
+```
+
+Options (both scripts share the same behaviour):
+
+| Option                | Windows equivalent | Description                                              |
+| --------------------- | ------------------ | -------------------------------------------------------- |
+| `--skip-browsers`     | `-SkipBrowsers`    | Skip downloading Chromium (packages only)                |
+| `--no-venv`           | `-NoVenv`          | Install packages into `vendor/`, skip the venv           |
+
+On Windows, if Python is not installed, `setup.ps1` automatically downloads a
+portable, embeddable Python into the project's `python/` folder and uses that.
 
 Or install manually:
 
@@ -88,8 +100,8 @@ pip install -r requirements.txt
 python -m playwright install chromium
 ```
 
-> The project now ships `requirements.txt` (without pinned versions), so there
-> is no need to generate one with `pip freeze`.
+> The project ships `requirements.txt` (without pinned versions), so there is
+> no need to generate one with `pip freeze`.
 
 ## Configuration
 
@@ -147,7 +159,7 @@ Double-click the launcher for your operating system. It checks the environment
 
 ### Run manually
 
-From the project root, after installing with `install.py`:
+From the project root, after installing with `setup.sh` / `setup.ps1`:
 
 On Linux / macOS:
 
@@ -268,33 +280,45 @@ run.spec
 PyInstaller is **not cross-platform**: you must build on the same OS that
 will run the executable.
 
-**Linux / macOS** — run the provided helper script (from the project root):
-it creates `.venv`, installs dependencies + PyInstaller, and runs the build
-automatically:
+> **Note:** the built package includes Playwright's **driver** but not the
+> browser. Chromium must be bundled into the output folder (see below) so the
+> app can run on machines that do not have Playwright installed globally.
+
+**Linux / macOS** — after running `./setup.sh`, build from the project root:
 
 ```bash
-./build_linux.sh
+.venv/bin/python -m PyInstaller run.spec --noconfirm
 ```
 
-Or build manually:
+Then bundle Chromium into the output folder so the app is self-contained:
 
 ```bash
-.venv/bin/python -m pip install pyinstaller
-.venv/bin/python -m pyinstaller run.spec --noconfirm
+PLAYWRIGHT_BROWSERS_PATH="$PWD/dist/ComicDownloadTool/ms-playwright" \
+    .venv/bin/python -m playwright install chromium
 ```
 
-Output: `dist/ /`.
+Output: `dist/ComicDownloadTool/`.
 
-**Windows** — copy the whole project folder to a Windows machine, then run
-the provided helper script (double-click `build_windows.bat`, or run it from
-`cmd`). It creates `.venv`, installs dependencies + PyInstaller, and runs the
-build automatically:
+**Windows** — after running `setup.ps1`, build from the project root (PowerShell):
 
-```text
-build_windows.bat
+```powershell
+.\.venv\Scripts\python.exe -m PyInstaller run.spec --noconfirm
+```
+
+Then bundle Chromium into the output folder:
+
+```powershell
+$env:PLAYWRIGHT_BROWSERS_PATH="$PWD\dist\ComicDownloadTool\ms-playwright"
+.\.venv\Scripts\python.exe -m playwright install chromium
 ```
 
 Output: `dist\ComicDownloadTool\`.
+
+Alternatively, the **GitHub Actions workflow (`.github/workflows/build.yml`)**
+does all of this automatically: it builds on both Linux and Windows, bundles
+Chromium into each output folder, uploads the artifacts, and — when a `v*`
+tag is pushed — creates a GitHub Release containing the `.tar.gz` (Linux) and
+`.zip` (Windows) archives.
 
 When distributing, copy the **entire** output folder (`ComicDownloadTool/`),
 not just the executable. On first run the app looks for a portable

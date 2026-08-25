@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 #
-# Click-to-run cho Linux/macOS:
-#   - tự kiểm tra môi trường (.venv hoặc vendor/),
-#   - nếu chưa cài thì chạy install.py,
-#   - rồi khởi động run.py.
+# Click-to-run for Linux/macOS:
+#   - detect the environment (.venv or vendor/),
+#   - if nothing is installed, run ./setup.sh,
+#   - then launch run.py.
 set -e
 cd "$(dirname "$0")"
 
@@ -22,15 +22,15 @@ pick_python
 
 if [ -z "$PY" ]; then
     if [ ! -f "requirements.txt" ]; then
-        echo "Khong tim thay requirements.txt trong thu muc project."
-        echo "Hay chay: python3 install.py"
+        echo "requirements.txt not found in the project folder."
+        echo "Please run: ./setup.sh"
         exit 1
     fi
-    echo "Chua cai dependencies. Dang cai đat (co the mat vai phut)..."
-    python3 install.py
+    echo "Dependencies not installed. Installing (this may take a few minutes)..."
+    ./setup.sh
     pick_python
     if [ -z "$PY" ]; then
-        echo "Cai dat that bai. Hay chay thu cong: python3 install.py"
+        echo "Installation failed. Please run manually: ./setup.sh"
         exit 1
     fi
 fi

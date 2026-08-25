@@ -1,0 +1,116 @@
+name: Build
+
+# Chạy khi push lên main, tạo pull request vào main,
+# tạo tag (release), hoặc khi được chạy thủ công trên GitHub.
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Run PyInstaller build
+        run: python -m PyInstaller run.spec --noconfirm
+
+      - name: Bundle Chromium for Playwright (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: dist/ComicDownloadTool/ms-playwright
+        run: python -m playwright install chromium
+
+      - name: Bundle Chromium for Playwright (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: dist/ComicDownloadTool/ms-playwright
+        run: python -m playwright install chromium
+
+      - name: Sanity check output folder (incl. icons)
+        shell: bash
+        run: |
+          ls dist
+          ls dist/ComicDownloadTool
+          # Icon files phải được bundle vào output (assets/) để app hiển thị icon.
+          ls -la dist/ComicDownloadTool/assets/icon.png
+          ls -la dist/ComicDownloadTool/assets/icon.ico
+
+      - name: Upload artifact (Linux)
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ComicDownloadTool-linux
+          path: dist/ComicDownloadTool
+          if-no-files-found: error
+
+      - name: Upload artifact (Windows)
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ComicDownloadTool-windows
+          path: dist/ComicDownloadTool
+          if-no-files-found: error
+
+  # Khi tag v* được push, tạo một GitHub Release kèm bản build.
+  release:
+    name: Publish release
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download Linux build
+        uses: actions/download-artifact@v4
+        with:
+          name: ComicDownloadTool-linux
+          path: dist/ComicDownloadTool-linux
+
+      - name: Download Windows build
+        uses: actions/download-artifact@v4
+        with:
+          name: ComicDownloadTool-windows
+          path: dist/ComicDownloadTool-windows
+
+      - name: Archive Linux build
+        run: tar -C dist/ComicDownloadTool-linux -czf ComicDownloadTool-linux.tar.gz ComicDownloadTool
+
+      - name: Archive Windows build
+        shell: bash
+        run: |
+          cd dist/ComicDownloadTool-windows
+          python - <<'EOF'
+          import shutil
+          shutil.make_archive('../../ComicDownloadTool-windows', 'zip', '.')
+          EOF
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ComicDownloadTool-linux.tar.gz
+            ComicDownloadTool-windows.zip
+          generate_release_notes: true
