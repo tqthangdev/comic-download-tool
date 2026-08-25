@@ -67,7 +67,9 @@ Comic Download Tool
 │   └── ui_right.py         # Right-side UI
 │
 ├── assets/
-│   └── loading.gif
+│   ├── loading.gif
+│   ├── icon.png
+│   └── icon.ico
 │
 ├── data/
 │   └── jobs.db             # SQLite job database
