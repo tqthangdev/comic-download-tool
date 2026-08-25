@@ -5,8 +5,8 @@ from pathlib import Path
 
 def _get_base_dir() -> Path:
     if getattr(sys, "frozen", False):
-        return Path(sys.executable).parent
-    return Path(__file__).parent
+        return Path(sys._MEIPASS)
+    return Path(__file__).resolve().parent
 
 
 def _default_playwright_browsers_path() -> Path:
@@ -64,8 +64,8 @@ def main():
 
     app = QApplication(sys.argv)
 
-    # Đặt icon cho app/taskbar (hoạt động cả khi dev lẫn khi đã build)
     icon_path = _get_base_dir() / "assets" / "icon.png"
+
     if icon_path.exists():
         app.setWindowIcon(QIcon(str(icon_path)))
 
