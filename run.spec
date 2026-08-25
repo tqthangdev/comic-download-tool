@@ -5,8 +5,8 @@ import playwright
 
 block_cipher = None
 
-# PyInstaller is executed from the project root in GitHub Actions
-BASE_DIR = Path.cwd()
+# Resolve paths relative to the spec file location
+BASE_DIR = Path(SPECPATH)
 
 # Locate the actual Playwright driver directory
 PLAYWRIGHT_DRIVER_PATH = Path(playwright.__file__).parent / "driver"

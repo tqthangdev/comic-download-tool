@@ -47,14 +47,16 @@ jobs:
       - name: Verify project files
         shell: bash
         run: |
-          echo "=== Working directory ==="
+          set -e
+
+          echo "=== Current directory ==="
           pwd
 
-          echo "=== Project ==="
+          echo "=== Project files ==="
           ls -la
 
           echo "=== Assets ==="
-          ls -la assets
+          find assets -maxdepth 2 -type f -print
 
           echo "=== Icons ==="
           ls -la assets/icon.png
@@ -84,7 +86,32 @@ jobs:
 
 
       # ==========================================
-      # PLAYWRIGHT CHROMIUM
+      # VERIFY PYINSTALLER OUTPUT
+      # ==========================================
+
+      - name: Verify PyInstaller output
+        shell: bash
+        run: |
+          set -e
+
+          echo "=== dist ==="
+          ls -la dist
+
+          echo "=== ComicDownloadTool ==="
+          ls -la dist/ComicDownloadTool
+
+          echo "=== All output files ==="
+          find dist/ComicDownloadTool -maxdepth 5 -type f -print | sort
+
+          echo "=== Search for icon files ==="
+          find dist/ComicDownloadTool \
+            -type f \
+            \( -name "icon.png" -o -name "icon.ico" \) \
+            -print
+
+
+      # ==========================================
+      # PLAYWRIGHT CHROMIUM - LINUX
       # ==========================================
 
       - name: Bundle Chromium for Playwright (Linux)
@@ -96,6 +123,10 @@ jobs:
           python -m playwright install chromium
 
 
+      # ==========================================
+      # PLAYWRIGHT CHROMIUM - WINDOWS
+      # ==========================================
+
       - name: Bundle Chromium for Playwright (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -106,26 +137,27 @@ jobs:
 
 
       # ==========================================
-      # VERIFY PYINSTALLER OUTPUT
+      # VERIFY FINAL PYINSTALLER OUTPUT
       # ==========================================
 
-      - name: Verify PyInstaller output
+      - name: Verify final application output
         shell: bash
         run: |
-          echo "=== dist ==="
-          ls -la dist
+          set -e
 
-          echo "=== ComicDownloadTool ==="
+          echo "=== Application root ==="
           ls -la dist/ComicDownloadTool
 
-          echo "=== Assets ==="
-          ls -la dist/ComicDownloadTool/assets
+          echo "=== Complete file tree ==="
+          find dist/ComicDownloadTool -maxdepth 5 -type f -print | sort
 
-          echo "=== Icons ==="
-          ls -la dist/ComicDownloadTool/assets/icon.png
-          ls -la dist/ComicDownloadTool/assets/icon.ico
+          echo "=== Icon search ==="
+          find dist/ComicDownloadTool \
+            -type f \
+            \( -name "icon.png" -o -name "icon.ico" \) \
+            -print
 
-          echo "=== Playwright ==="
+          echo "=== Playwright browsers ==="
           ls -la dist/ComicDownloadTool/ms-playwright
 
 
@@ -137,6 +169,8 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         run: |
+          set -e
+
           wget -q \
             https://github.com/AppImage/appimagetool/releases/latest/download/appimagetool-x86_64.AppImage \
             -O appimagetool
@@ -159,18 +193,34 @@ jobs:
             "$APPDIR/usr/share/applications" \
             "$APPDIR/usr/share/icons/hicolor/256x256/apps"
 
-          # Copy PyInstaller application
+          # Copy the complete PyInstaller application
           cp -a dist/ComicDownloadTool/. "$APPDIR/usr/bin/"
 
-          # AppImage icon
-          cp assets/icon.png \
-            "$APPDIR/usr/share/icons/hicolor/256x256/apps/comicdownloadtool.png"
+          # Find the bundled icon
+          ICON_PATH=""
 
-          # AppImage root icon
-          cp assets/icon.png \
+          if [ -f "$APPDIR/usr/bin/assets/icon.png" ]; then
+            ICON_PATH="$APPDIR/usr/bin/assets/icon.png"
+          elif [ -f "$APPDIR/usr/bin/_internal/assets/icon.png" ]; then
+            ICON_PATH="$APPDIR/usr/bin/_internal/assets/icon.png"
+          fi
+
+          if [ -z "$ICON_PATH" ]; then
+            echo "ERROR: icon.png was not found in the PyInstaller output."
+            find "$APPDIR/usr/bin" -type f -print | sort
+            exit 1
+          fi
+
+          echo "Using icon: $ICON_PATH"
+
+          # Copy icon to AppImage standard locations
+          cp "$ICON_PATH" \
             "$APPDIR/comicdownloadtool.png"
 
-          # Desktop entry
+          cp "$ICON_PATH" \
+            "$APPDIR/usr/share/icons/hicolor/256x256/apps/comicdownloadtool.png"
+
+          # Create desktop entry
           cat > "$APPDIR/comicdownloadtool.desktop" <<'EOF'
           [Desktop Entry]
           Type=Application
@@ -182,7 +232,7 @@ jobs:
           Categories=Utility;
           EOF
 
-          # AppRun
+          # Create AppRun
           cat > "$APPDIR/AppRun" <<'EOF'
           #!/bin/sh
 
@@ -194,8 +244,12 @@ jobs:
           chmod +x "$APPDIR/AppRun"
 
           echo "=== AppDir ==="
-          find "$APPDIR" -maxdepth 5 -type f | sort
+          find "$APPDIR" -maxdepth 6 -type f -print | sort
 
+
+      # ==========================================
+      # BUILD APPIMAGE
+      # ==========================================
 
       - name: Build AppImage
         if: runner.os == 'Linux'
@@ -209,11 +263,12 @@ jobs:
 
           chmod +x ComicDownloadTool.AppImage
 
+          echo "=== AppImage ==="
           ls -lh ComicDownloadTool.AppImage
 
 
       # ==========================================
-      # UPLOAD LINUX
+      # UPLOAD LINUX APPIMAGE
       # ==========================================
 
       - name: Upload Linux AppImage
@@ -226,7 +281,7 @@ jobs:
 
 
       # ==========================================
-      # UPLOAD WINDOWS
+      # UPLOAD WINDOWS BUILD
       # ==========================================
 
       - name: Upload Windows build
@@ -239,7 +294,7 @@ jobs:
 
 
   # ==========================================
-  # RELEASE
+  # PUBLISH RELEASE
   # ==========================================
 
   release:
@@ -255,9 +310,8 @@ jobs:
       contents: write
 
     steps:
-
       # ==========================================
-      # DOWNLOAD LINUX
+      # DOWNLOAD LINUX APPIMAGE
       # ==========================================
 
       - name: Download Linux AppImage
@@ -268,7 +322,7 @@ jobs:
 
 
       # ==========================================
-      # DOWNLOAD WINDOWS
+      # DOWNLOAD WINDOWS BUILD
       # ==========================================
 
       - name: Download Windows build
@@ -279,12 +333,33 @@ jobs:
 
 
       # ==========================================
-      # ARCHIVE WINDOWS
+      # VERIFY WINDOWS EXE
+      # ==========================================
+
+      - name: Verify Windows executable
+        shell: bash
+        run: |
+          set -e
+
+          echo "=== Windows files ==="
+          find release/windows -maxdepth 5 -type f -print | sort
+
+          echo "=== EXE files ==="
+          find release/windows \
+            -type f \
+            -iname "*.exe" \
+            -print
+
+
+      # ==========================================
+      # ARCHIVE WINDOWS BUILD
       # ==========================================
 
       - name: Archive Windows build
         shell: bash
         run: |
+          set -e
+
           cd release/windows
 
           zip -r \
@@ -293,16 +368,18 @@ jobs:
 
 
       # ==========================================
-      # CHECK RELEASE FILES
+      # VERIFY RELEASE FILES
       # ==========================================
 
       - name: Check release files
         shell: bash
         run: |
-          echo "=== Linux ==="
-          ls -lh release
+          set -e
 
-          echo "=== Windows ==="
+          echo "=== Linux AppImage ==="
+          ls -lh release/ComicDownloadTool.AppImage
+
+          echo "=== Windows ZIP ==="
           ls -lh ComicDownloadTool-windows.zip
 
 
