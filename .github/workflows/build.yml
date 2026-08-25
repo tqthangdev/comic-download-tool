@@ -78,6 +78,41 @@ jobs:
 
 
       # ==========================================
+      # PLAYWRIGHT CHROMIUM
+      # ==========================================
+
+      - name: Install Playwright Chromium
+        shell: bash
+        run: |
+          python -m playwright install chromium
+
+
+      # ==========================================
+      # LOCATE PLAYWRIGHT BROWSER
+      # ==========================================
+
+      - name: Locate Playwright browser
+        shell: bash
+        run: |
+          echo "=== PLAYWRIGHT_BROWSERS_PATH ==="
+          python -c "import playwright; print(playwright.__file__)"
+
+          echo "=== Browser cache ==="
+
+          if [ -n "${PLAYWRIGHT_BROWSERS_PATH:-}" ]; then
+            find "$PLAYWRIGHT_BROWSERS_PATH" -maxdepth 3 -type d -print || true
+          fi
+
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            find "$HOME/.cache/ms-playwright" -maxdepth 3 -type d -print || true
+          fi
+
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            find "$LOCALAPPDATA/ms-playwright" -maxdepth 3 -type d -print || true
+          fi
+
+
+      # ==========================================
       # CREATE PYINSTALLER SPEC
       # ==========================================
 
@@ -86,16 +121,67 @@ jobs:
         run: |
           cat > run.spec <<'EOF'
           from pathlib import Path
+          import os
+          import sys
 
           import playwright
 
           block_cipher = None
 
-          # Resolve paths relative to the spec file location
           BASE_DIR = Path(SPECPATH)
 
-          # Locate the actual Playwright driver directory
-          PLAYWRIGHT_DRIVER_PATH = Path(playwright.__file__).parent / "driver"
+          PLAYWRIGHT_DRIVER_PATH = (
+              Path(playwright.__file__).parent / "driver"
+          )
+
+          datas = [
+              (
+                  str(BASE_DIR / "assets"),
+                  "assets",
+              ),
+              (
+                  str(BASE_DIR / "config.json"),
+                  ".",
+              ),
+              (
+                  str(PLAYWRIGHT_DRIVER_PATH),
+                  "playwright/driver",
+              ),
+          ]
+
+          # ==========================================
+          # PLAYWRIGHT CHROMIUM
+          # ==========================================
+
+          if sys.platform == "win32":
+              browser_path = (
+                  Path(os.environ["LOCALAPPDATA"])
+                  / "ms-playwright"
+              )
+
+              browser_dirs = list(
+                  browser_path.glob("chromium-*")
+              )
+
+          else:
+              browser_path = (
+                  Path.home()
+                  / ".cache"
+                  / "ms-playwright"
+              )
+
+              browser_dirs = list(
+                  browser_path.glob("chromium-*")
+              )
+
+          for browser_dir in browser_dirs:
+              if browser_dir.is_dir():
+                  datas.append(
+                      (
+                          str(browser_dir),
+                          "ms-playwright/" + browser_dir.name,
+                      )
+                  )
 
           a = Analysis(
               [str(BASE_DIR / "run.py")],
@@ -103,25 +189,7 @@ jobs:
                   str(BASE_DIR),
               ],
               binaries=[],
-              datas=[
-                  # Bundle the entire assets/ directory
-                  (
-                      str(BASE_DIR / "assets"),
-                      "assets",
-                  ),
-
-                  # Bundle config.json
-                  (
-                      str(BASE_DIR / "config.json"),
-                      ".",
-                  ),
-
-                  # Bundle the Playwright driver
-                  (
-                      str(PLAYWRIGHT_DRIVER_PATH),
-                      "playwright/driver",
-                  ),
-              ],
+              datas=datas,
               hiddenimports=[
                   "playwright.async_api",
                   "playwright.__main__",
@@ -149,48 +217,54 @@ jobs:
           exe = EXE(
               pyz,
               a.scripts,
-              [],
-              exclude_binaries=True,
+              a.binaries,
+              a.zipfiles,
+              a.datas,
+
               name="ComicDownloadTool",
+
               debug=False,
               bootloader_ignore_signals=False,
               strip=False,
               upx=True,
+
               console=False,
-              icon=str(BASE_DIR / "assets" / "icon.ico"),
+
+              icon=(
+                  str(BASE_DIR / "assets" / "icon.ico")
+                  if sys.platform == "win32"
+                  else None
+              ),
+
               disable_windowed_traceback=False,
               argv_emulation=False,
               target_arch=None,
               codesign_identity=None,
               entitlements_file=None,
-          )
 
-          coll = COLLECT(
-              exe,
-              a.binaries,
-              a.zipfiles,
-              a.datas,
-              strip=False,
-              upx=True,
-              upx_exclude=[],
-              name="ComicDownloadTool",
+              # ==========================================
+              # ONEFILE
+              # ==========================================
+
+              onefile=True,
           )
           EOF
 
 
       # ==========================================
-      # PYINSTALLER
+      # PYINSTALLER BUILD
       # ==========================================
 
       - name: Run PyInstaller build
-        run: python -m PyInstaller run.spec --noconfirm
+        run: |
+          python -m PyInstaller run.spec --noconfirm --clean
 
 
       # ==========================================
-      # VERIFY PYINSTALLER OUTPUT
+      # VERIFY BUILD
       # ==========================================
 
-      - name: Verify PyInstaller output
+      - name: Verify build
         shell: bash
         run: |
           set -e
@@ -198,68 +272,30 @@ jobs:
           echo "=== dist ==="
           ls -la dist
 
-          echo "=== ComicDownloadTool ==="
-          ls -la dist/ComicDownloadTool
-
-          echo "=== All output files ==="
-          find dist/ComicDownloadTool -maxdepth 5 -type f -print | sort
-
-          echo "=== Search for icon files ==="
-          find dist/ComicDownloadTool \
-            -type f \
-            \( -name "icon.png" -o -name "icon.ico" \) \
-            -print
+          echo "=== Files ==="
+          find dist -maxdepth 2 -type f -print | sort
 
 
       # ==========================================
-      # PLAYWRIGHT CHROMIUM - LINUX
+      # RENAME WINDOWS EXE
       # ==========================================
 
-      - name: Bundle Chromium for Playwright (Linux)
-        if: runner.os == 'Linux'
-        shell: bash
-        env:
-          PLAYWRIGHT_BROWSERS_PATH: dist/ComicDownloadTool/ms-playwright
-        run: |
-          python -m playwright install chromium
-
-
-      # ==========================================
-      # PLAYWRIGHT CHROMIUM - WINDOWS
-      # ==========================================
-
-      - name: Bundle Chromium for Playwright (Windows)
+      - name: Prepare Windows executable
         if: runner.os == 'Windows'
         shell: pwsh
-        env:
-          PLAYWRIGHT_BROWSERS_PATH: dist/ComicDownloadTool/ms-playwright
         run: |
-          python -m playwright install chromium
+          $source = "dist/ComicDownloadTool.exe"
+          $target = "ComicDownloadTool.exe"
 
+          if (!(Test-Path $source)) {
+              Write-Error "ComicDownloadTool.exe was not created."
+              exit 1
+          }
 
-      # ==========================================
-      # VERIFY FINAL APPLICATION OUTPUT
-      # ==========================================
+          Copy-Item $source $target -Force
 
-      - name: Verify final application output
-        shell: bash
-        run: |
-          set -e
-
-          echo "=== Application root ==="
-          ls -la dist/ComicDownloadTool
-
-          echo "=== Complete file tree ==="
-          find dist/ComicDownloadTool -maxdepth 5 -type f -print | sort
-
-          echo "=== Icon search ==="
-          find dist/ComicDownloadTool \
-            -type f \
-            \( -name "icon.png" -o -name "icon.ico" \) \
-            -print
-
-          echo "=== Playwright browsers ==="
-          ls -la dist/ComicDownloadTool/ms-playwright
+          Write-Host "=== Windows executable ==="
+          Get-Item $target
 
 
       # ==========================================
@@ -279,6 +315,10 @@ jobs:
           chmod +x appimagetool
 
 
+      # ==========================================
+      # PREPARE APPIMAGE
+      # ==========================================
+
       - name: Prepare AppImage AppDir
         if: runner.os == 'Linux'
         shell: bash
@@ -294,36 +334,43 @@ jobs:
             "$APPDIR/usr/share/applications" \
             "$APPDIR/usr/share/icons/hicolor/256x256/apps"
 
-          # Copy the complete PyInstaller application
-          cp -a dist/ComicDownloadTool/. "$APPDIR/usr/bin/"
+          # ==========================================
+          # COPY PYINSTALLER APPLICATION
+          # ==========================================
 
-          # Locate the bundled application icon
+          cp dist/ComicDownloadTool \
+            "$APPDIR/usr/bin/ComicDownloadTool"
+
+          chmod +x \
+            "$APPDIR/usr/bin/ComicDownloadTool"
+
+          # ==========================================
+          # ICON
+          # ==========================================
+
           ICON_PATH=""
 
-          if [ -f "$APPDIR/usr/bin/assets/icon.png" ]; then
-            ICON_PATH="$APPDIR/usr/bin/assets/icon.png"
-          elif [ -f "$APPDIR/usr/bin/_internal/assets/icon.png" ]; then
-            ICON_PATH="$APPDIR/usr/bin/_internal/assets/icon.png"
+          if [ -f "assets/icon.png" ]; then
+              ICON_PATH="assets/icon.png"
+          elif [ -f "dist/assets/icon.png" ]; then
+              ICON_PATH="dist/assets/icon.png"
           fi
 
           if [ -z "$ICON_PATH" ]; then
-            echo "ERROR: icon.png was not found in the PyInstaller output."
-            echo "=== Application files ==="
-            find "$APPDIR/usr/bin" -type f -print | sort
-            exit 1
+              echo "ERROR: icon.png was not found."
+              exit 1
           fi
 
-          echo "Using icon: $ICON_PATH"
-
-          # AppImage root icon
           cp "$ICON_PATH" \
             "$APPDIR/comicdownloadtool.png"
 
-          # Standard application icon location
           cp "$ICON_PATH" \
             "$APPDIR/usr/share/icons/hicolor/256x256/apps/comicdownloadtool.png"
 
-          # Desktop entry
+          # ==========================================
+          # DESKTOP ENTRY
+          # ==========================================
+
           cat > "$APPDIR/comicdownloadtool.desktop" <<'EOF'
           [Desktop Entry]
           Type=Application
@@ -335,7 +382,10 @@ jobs:
           Categories=Utility;
           EOF
 
-          # AppRun launcher
+          # ==========================================
+          # APPRUN
+          # ==========================================
+
           cat > "$APPDIR/AppRun" <<'EOF'
           #!/bin/sh
 
@@ -345,9 +395,6 @@ jobs:
           EOF
 
           chmod +x "$APPDIR/AppRun"
-
-          echo "=== AppDir ==="
-          find "$APPDIR" -maxdepth 6 -type f -print | sort
 
 
       # ==========================================
@@ -384,15 +431,15 @@ jobs:
 
 
       # ==========================================
-      # UPLOAD WINDOWS APPLICATION
+      # UPLOAD WINDOWS EXE
       # ==========================================
 
-      - name: Upload Windows application
+      - name: Upload Windows executable
         if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4
         with:
           name: ComicDownloadTool-windows
-          path: dist/ComicDownloadTool
+          path: ComicDownloadTool.exe
           if-no-files-found: error
 
 
@@ -425,6 +472,33 @@ jobs:
 
 
       # ==========================================
+      # DOWNLOAD WINDOWS EXE
+      # ==========================================
+
+      - name: Download Windows executable
+        uses: actions/download-artifact@v4
+        with:
+          name: ComicDownloadTool-windows
+          path: release
+
+
+      # ==========================================
+      # VERIFY RELEASE FILES
+      # ==========================================
+
+      - name: Verify release files
+        shell: bash
+        run: |
+          set -e
+
+          echo "=== Release files ==="
+          ls -lh release
+
+          test -f release/ComicDownloadTool.AppImage
+          test -f release/ComicDownloadTool.exe
+
+
+      # ==========================================
       # CREATE GITHUB RELEASE
       # ==========================================
 
@@ -433,4 +507,5 @@ jobs:
         with:
           files: |
             release/ComicDownloadTool.AppImage
+            release/ComicDownloadTool.exe
           generate_release_notes: true
