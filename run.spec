@@ -1,28 +1,56 @@
 # run.spec
-import playwright
 from pathlib import Path
+
+import playwright
+
+
+# ==========================================
+# PATHS
+# ==========================================
+
+BASE_DIR = Path(__file__).resolve().parent
+PLAYWRIGHT_DRIVER_PATH = Path(playwright.__file__).parent / "driver"
 
 block_cipher = None
 
-# Tìm thư mục driver thực tế của playwright đã cài trên máy build
-playwright_driver_path = Path(playwright.__file__).parent / "driver"
+
+# ==========================================
+# ANALYSIS
+# ==========================================
 
 a = Analysis(
-    ['run.py'],
-    pathex=[],
+    [str(BASE_DIR / "run.py")],
+    pathex=[
+        str(BASE_DIR),
+    ],
     binaries=[],
     datas=[
-        ('assets', 'assets'),
-        ('config.json', '.'),
-        (str(playwright_driver_path), 'playwright/driver'),   # bắt buộc để playwright driver chạy được
+        # Bundle toàn bộ assets/ vào:
+        # dist/ComicDownloadTool/assets/
+        (
+            str(BASE_DIR / "assets"),
+            "assets",
+        ),
+
+        # Bundle config.json vào root output
+        (
+            str(BASE_DIR / "config.json"),
+            ".",
+        ),
+
+        # Bundle Playwright Python driver
+        (
+            str(PLAYWRIGHT_DRIVER_PATH),
+            "playwright/driver",
+        ),
     ],
     hiddenimports=[
-        'playwright.async_api',
-        'playwright.__main__',
-        'qasync',
-        'aiohttp',
-        'bs4',
-        'lxml',
+        "playwright.async_api",
+        "playwright.__main__",
+        "qasync",
+        "aiohttp",
+        "bs4",
+        "lxml",
     ],
     hookspath=[],
     hooksconfig={},
@@ -34,26 +62,48 @@ a = Analysis(
     noarchive=False,
 )
 
-pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
+
+# ==========================================
+# PYZ
+# ==========================================
+
+pyz = PYZ(
+    a.pure,
+    a.zipped_data,
+    cipher=block_cipher,
+)
+
+
+# ==========================================
+# EXECUTABLE
+# ==========================================
 
 exe = EXE(
     pyz,
     a.scripts,
     [],
     exclude_binaries=True,
-    name='ComicDownloadTool',
+    name="ComicDownloadTool",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
     console=False,
-    icon=['assets/icon.ico'],
+
+    # Windows executable icon
+    icon=str(BASE_DIR / "assets" / "icon.ico"),
+
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
 )
+
+
+# ==========================================
+# COLLECT
+# ==========================================
 
 coll = COLLECT(
     exe,
@@ -63,5 +113,5 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=[],
-    name='ComicDownloadTool',
+    name="ComicDownloadTool",
 )
