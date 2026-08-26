@@ -12,12 +12,13 @@ Prebuilt standalone builds are published as **GitHub Releases** — no Python or
 
 1. Go to the [Releases](https://github.com/tqthangdev/comic-download-tool/releases) page.
 2. Pick the newest release (tagged `v*`).
-3. Download the executable file for your OS:
-   * **`ComicDownloadTool.exe`** — Windows
-   * **`ComicDownloadTool.AppImage`** — Linux
-4. Run the application:
-   * **Windows:** Double-click `ComicDownloadTool.exe`
-   * **Linux:** Make it executable (`chmod +x ComicDownloadTool.AppImage`) and run `./ComicDownloadTool.AppImage`
+3. Download the build for your OS:
+   * **`ComicDownloadTool-linux.zip`** — Linux
+   * **`ComicDownloadTool-windows.zip`** — Windows
+4. Extract the ZIP archive.
+5. Run the application:
+   * **Windows:** Run `ComicDownloadTool.exe`
+   * **Linux:** Run `./ComicDownloadTool`
 
 > **No dependencies needed:** Each build bundles the app, Playwright's driver, and Chromium. It is fully self-contained.
 
