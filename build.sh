@@ -18,7 +18,7 @@ echo "=========================================="
 
 if [ ! -x "$PYTHON" ]; then
     echo "=== Creating venv ==="
-    python -m venv "$VENV"
+    python3 -m venv "$VENV"
 fi
 
 echo
@@ -145,9 +145,21 @@ a = Analysis(
     ],
 
     hookspath=[],
-    hooksconfig={},
+    hooksconfig=[],
     runtime_hooks=[],
-    excludes=[],
+
+    # Do not bundle system GUI libraries.
+    # Linux Qt/GTK/Wayland/X11 libraries must
+    # come from the target system.
+    excludes=[
+        "libxkbcommon",
+        "libwayland-client",
+        "libwayland-cursor",
+        "libwayland-egl",
+        "libX11",
+        "libX11-xcb",
+        "libxcb",
+    ],
 
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
@@ -214,6 +226,24 @@ echo "=== Building ONEDIR ==="
     --clean
 
 # ==========================================
+# REMOVE SYSTEM GUI LIBRARIES
+# ==========================================
+
+echo
+echo "=== Removing bundled system GUI libraries ==="
+
+INTERNAL_DIR="$PROJECT_DIR/dist/ComicDownloadTool/_internal"
+
+rm -f \
+    "$INTERNAL_DIR"/libxkbcommon.so.* \
+    "$INTERNAL_DIR"/libwayland-client.so.* \
+    "$INTERNAL_DIR"/libwayland-cursor.so.* \
+    "$INTERNAL_DIR"/libwayland-egl.so.* \
+    "$INTERNAL_DIR"/libX11.so.* \
+    "$INTERNAL_DIR"/libX11-xcb.so.* \
+    "$INTERNAL_DIR"/libxcb*.so.*
+
+# ==========================================
 # VERIFY
 # ==========================================
 
@@ -224,6 +254,63 @@ if [ ! -f "$PROJECT_DIR/dist/ComicDownloadTool/ComicDownloadTool" ]; then
     echo "ERROR: Build failed."
     exit 1
 fi
+
+# ==========================================
+# VERIFY PLAYWRIGHT
+# ==========================================
+
+echo
+echo "=== Verify Playwright Chromium ==="
+
+CHROMIUM_COUNT=$(
+    find "$INTERNAL_DIR/ms-playwright" \
+        -type f \
+        -name chrome \
+        2>/dev/null |
+    wc -l
+)
+
+if [ "$CHROMIUM_COUNT" -eq 0 ]; then
+    echo "ERROR: Playwright Chromium was not bundled."
+    exit 1
+fi
+
+echo "Chromium executable(s): $CHROMIUM_COUNT"
+
+# ==========================================
+# VERIFY SYSTEM GUI LIBRARIES
+# ==========================================
+
+echo
+echo "=== Verify bundled system GUI libraries ==="
+
+if find "$INTERNAL_DIR" -maxdepth 1 -type f \
+    \( \
+        -name 'libxkbcommon.so.*' \
+        -o -name 'libwayland-client.so.*' \
+        -o -name 'libwayland-cursor.so.*' \
+        -o -name 'libwayland-egl.so.*' \
+        -o -name 'libX11.so.*' \
+        -o -name 'libX11-xcb.so.*' \
+        -o -name 'libxcb*.so.*' \
+    \) \
+    | grep -q .; then
+
+    echo "ERROR: System GUI libraries are still bundled:"
+    find "$INTERNAL_DIR" -maxdepth 1 -type f \
+        \( \
+            -name 'libxkbcommon.so.*' \
+            -o -name 'libwayland-client.so.*' \
+            -o -name 'libwayland-cursor.so.*' \
+            -o -name 'libwayland-egl.so.*' \
+            -o -name 'libX11.so.*' \
+            -o -name 'libX11-xcb.so.*' \
+            -o -name 'libxcb*.so.*' \
+        \)
+    exit 1
+fi
+
+echo "OK: No system GUI libraries bundled."
 
 # ==========================================
 # CLEAN BUILD FILES
