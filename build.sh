@@ -52,7 +52,7 @@ echo
 echo "=== Verify project ==="
 
 test -f run.py
-test -f config.json
+test -f data/config.json
 test -f assets/icon.png
 
 # ==========================================
@@ -92,7 +92,7 @@ datas = [
         "assets",
     ),
     (
-        str(BASE_DIR / "config.json"),
+        str(BASE_DIR / "data" / "config.json"),
         ".",
     ),
     (

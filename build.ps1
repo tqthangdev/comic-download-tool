@@ -53,8 +53,8 @@ if (!(Test-Path "run.py")) {
     throw "run.py was not found."
 }
 
-if (!(Test-Path "config.json")) {
-    throw "config.json was not found."
+if (!(Test-Path "data\config.json")) {
+    throw "data\config.json was not found."
 }
 
 if (!(Test-Path "assets\icon.ico")) {
@@ -111,7 +111,7 @@ datas = [
         "assets",
     ),
     (
-        str(BASE_DIR / "config.json"),
+        str(BASE_DIR / "data" / "config.json"),
         ".",
     ),
     (
