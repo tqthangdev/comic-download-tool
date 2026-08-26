@@ -6,7 +6,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
 
-def safe_filename(name: str, max_length=80):
+def safe_filename(name: str, max_length=200):
     # 1. Strip characters forbidden by the OS
     name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "", name)
 
@@ -68,46 +68,22 @@ def get_resource_path(relative_path: str) -> Path:
     return base_path / relative_path
 
 
+BASE_DIR = get_base_dir()
+
+
 def get_user_data_dir() -> Path:
     """
     Return a writable directory for application data.
 
-    Linux:
-        $XDG_DATA_HOME/ComicDownloadTool
-        or ~/.local/share/ComicDownloadTool
-
-    Windows:
-        %LOCALAPPDATA%/ComicDownloadTool
-
-    macOS:
-        ~/Library/Application Support/ComicDownloadTool
+    The data directory is created right next to the executable (release)
+    or in the project root (dev), so config.json / jobs.db live wherever
+    the app is run from.
     """
-    if sys.platform == "win32":
-        base_path = Path(
-            os.environ.get(
-                "LOCALAPPDATA",
-                Path.home() / "AppData" / "Local",
-            )
-        )
-
-    elif sys.platform == "darwin":
-        base_path = Path.home() / "Library" / "Application Support"
-
-    else:
-        base_path = Path(
-            os.environ.get(
-                "XDG_DATA_HOME",
-                Path.home() / ".local" / "share",
-            )
-        )
-
-    data_dir = base_path / "ComicDownloadTool"
+    data_dir = BASE_DIR / "data"
     data_dir.mkdir(parents=True, exist_ok=True)
 
     return data_dir
 
-
-BASE_DIR = get_base_dir()
 
 # Writable application data directory.
 DATA_DIR = get_user_data_dir()

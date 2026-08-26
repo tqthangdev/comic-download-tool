@@ -1,9 +1,9 @@
 import logging
 
-from core.utils import DATA_DIR
+from core.utils import BASE_DIR
 
 
-LOGS_DIR = DATA_DIR / "logs"
+LOGS_DIR = BASE_DIR / "logs"
 LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
 LOG_FILE = LOGS_DIR / "error.log"

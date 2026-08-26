@@ -57,9 +57,8 @@ Comic Download Tool
 │   └── ui_right.py         # Right-side UI
 │
 ├── assets/                 # Icons and UI images
-├── data/jobs.db            # SQLite job database
+├── data/                   # App data next to the app (config.json, jobs.db)
 ├── logs/error.log          # Application error log
-├── config.json             # Application configuration
 ├── requirements.txt        # Python dependencies
 ├── run.py                  # Application entry point
 ├── build.sh / build.ps1    # Build scripts (Linux/macOS / Windows)
@@ -125,7 +124,7 @@ PYTHONPATH=vendor python run.py
 
 ## Configuration
 
-Settings are stored in `config.json`.
+Settings are stored in `config.json`, created automatically inside `data/` right next to the app (both when running from source and in a built release).
 
 ```json
 {
@@ -187,10 +186,13 @@ No site-specific configs are needed. To support sites with unusual markup, updat
 * `find_chapters()` — chapter-list detection heuristics.
 * `find_chapter_images()` — chapter image URL patterns.
 
-## Database & Logs
+## Data Storage
 
-* **SQLite DB:** `data/jobs.db` stores queued/processed jobs across restarts.
-* **Logs:** `logs/error.log` contains detailed debug info for failed downloads or scraper errors.
+The app stores its data next to where it is run, so running a build from any folder keeps its settings, jobs, and logs self-contained in that folder:
+
+* **`data/config.json`** — application configuration (auto-created).
+* **`data/jobs.db`** — SQLite database storing queued/processed jobs across restarts.
+* **`logs/error.log`** — detailed info for failed downloads or scraper errors.
 
 ## Development Workflow
 
