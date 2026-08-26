@@ -18,7 +18,7 @@ echo "=========================================="
 
 if [ ! -x "$PYTHON" ]; then
     echo "=== Creating venv ==="
-    python3 -m venv "$VENV"
+    python -m venv "$VENV"
 fi
 
 echo

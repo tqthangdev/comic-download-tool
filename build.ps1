@@ -1,10 +1,10 @@
 $ErrorActionPreference = "Stop"
 
-$ProjectDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-Set-Location $ProjectDir
+$PROJECT_DIR = Split-Path -Parent $MyInvocation.MyCommand.Path
+Set-Location $PROJECT_DIR
 
-$Venv = Join-Path $ProjectDir ".venv"
-$Python = Join-Path $Venv "Scripts\python.exe"
+$VENV = Join-Path $PROJECT_DIR ".venv"
+$PYTHON = Join-Path $VENV "Scripts\python.exe"
 
 Write-Host "=========================================="
 Write-Host " ComicDownloadTool - Windows ONEDIR Build"
@@ -14,17 +14,14 @@ Write-Host "=========================================="
 # VENV
 # ==========================================
 
-if (!(Test-Path $Python)) {
-    Write-Host ""
+if (!(Test-Path $PYTHON)) {
     Write-Host "=== Creating venv ==="
-
-    py -3 -m venv $Venv
+    python -m venv $VENV
 }
 
 Write-Host ""
 Write-Host "=== Python ==="
-
-& $Python --version
+& $PYTHON --version
 
 # ==========================================
 # DEPENDENCIES
@@ -33,8 +30,8 @@ Write-Host "=== Python ==="
 Write-Host ""
 Write-Host "=== Installing dependencies ==="
 
-& $Python -m pip install -r requirements.txt
-& $Python -m pip install pyinstaller
+& $PYTHON -m pip install -r requirements.txt
+& $PYTHON -m pip install pyinstaller
 
 # ==========================================
 # PLAYWRIGHT
@@ -43,7 +40,7 @@ Write-Host "=== Installing dependencies ==="
 Write-Host ""
 Write-Host "=== Installing Playwright Chromium ==="
 
-& $Python -m playwright install chromium
+& $PYTHON -m playwright install chromium
 
 # ==========================================
 # VERIFY
@@ -71,10 +68,21 @@ if (!(Test-Path "assets\icon.ico")) {
 Write-Host ""
 Write-Host "=== Cleaning previous build ==="
 
-Remove-Item -Recurse -Force `
-    "build", `
-    "dist", `
+Remove-Item `
+    "build" `
+    -Recurse `
+    -Force `
+    -ErrorAction SilentlyContinue
+
+Remove-Item `
+    "dist" `
+    -Recurse `
+    -Force `
+    -ErrorAction SilentlyContinue
+
+Remove-Item `
     "run.spec" `
+    -Force `
     -ErrorAction SilentlyContinue
 
 # ==========================================
@@ -84,7 +92,7 @@ Remove-Item -Recurse -Force `
 Write-Host ""
 Write-Host "=== Creating PyInstaller spec ==="
 
-@'
+@"
 from pathlib import Path
 import os
 import playwright
@@ -188,9 +196,7 @@ exe = EXE(
 
     console=False,
 
-    icon=str(
-        BASE_DIR / "assets" / "icon.ico"
-    ),
+    icon=str(BASE_DIR / "assets" / "icon.ico"),
 
     disable_windowed_traceback=False,
     argv_emulation=False,
@@ -211,7 +217,7 @@ coll = COLLECT(
 
     name="ComicDownloadTool",
 )
-'@ | Set-Content -Encoding UTF8 "run.spec"
+"@ | Set-Content -Path "run.spec" -Encoding UTF8
 
 # ==========================================
 # BUILD ONEDIR
@@ -220,10 +226,14 @@ coll = COLLECT(
 Write-Host ""
 Write-Host "=== Building ONEDIR ==="
 
-& $Python -m PyInstaller `
+& $PYTHON -m PyInstaller `
     run.spec `
     --noconfirm `
     --clean
+
+if ($LASTEXITCODE -ne 0) {
+    throw "PyInstaller build failed."
+}
 
 # ==========================================
 # VERIFY
@@ -232,9 +242,9 @@ Write-Host "=== Building ONEDIR ==="
 Write-Host ""
 Write-Host "=== Verify build ==="
 
-$Executable = "dist\ComicDownloadTool\ComicDownloadTool.exe"
+$EXE = "dist\ComicDownloadTool\ComicDownloadTool.exe"
 
-if (!(Test-Path $Executable)) {
+if (!(Test-Path $EXE)) {
     throw "Build failed: ComicDownloadTool.exe was not created."
 }
 
@@ -245,9 +255,15 @@ if (!(Test-Path $Executable)) {
 Write-Host ""
 Write-Host "=== Removing temporary files ==="
 
-Remove-Item -Recurse -Force `
-    "build", `
+Remove-Item `
+    "build" `
+    -Recurse `
+    -Force `
+    -ErrorAction SilentlyContinue
+
+Remove-Item `
     "run.spec" `
+    -Force `
     -ErrorAction SilentlyContinue
 
 # ==========================================
@@ -259,7 +275,7 @@ Write-Host "=========================================="
 Write-Host " Build successful"
 Write-Host "=========================================="
 
-$Size = (
+$SIZE = (
     Get-ChildItem `
         "dist\ComicDownloadTool" `
         -Recurse `
@@ -267,14 +283,8 @@ $Size = (
     Measure-Object Length -Sum
 ).Sum
 
-$SizeMB = [math]::Round(
-    $Size / 1MB,
-    2
-)
+Write-Host "Build size: $([math]::Round($SIZE / 1MB, 2)) MB"
 
 Write-Host ""
 Write-Host "Output:"
-Write-Host "dist\ComicDownloadTool\"
-
-Write-Host ""
-Write-Host "Size: $SizeMB MB"
+Write-Host "$PROJECT_DIR\dist\ComicDownloadTool\"
