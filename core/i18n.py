@@ -74,6 +74,7 @@ TRANSLATIONS = {
         "status_resume": "Resume",
         "status_done": "Done",
         "status_failed": "Failed",
+        "status_done_with_missing": "Done with missing",
     },
     "en": {
         # Common
@@ -148,6 +149,7 @@ TRANSLATIONS = {
         "status_resume": "Resume",
         "status_done": "Done",
         "status_failed": "Failed",
+        "status_done_with_missing": "Done with missing",
     },
 }
 

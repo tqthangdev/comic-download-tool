@@ -141,12 +141,27 @@ def find_title(soup: BeautifulSoup, thumb_img) -> str:
 def find_thumb(soup: BeautifulSoup, base_url: str):
     # Priority: og:image meta > img[class/id*=thumb/cover] > .thumb img/.cover img > first <img>
     og = soup.find("meta", property="og:image")
-    if og and og.get("content", "").strip():
-        return {"url": urljoin(base_url, og["content"].strip()), "element": None}
+    if og:
+        content = og.get("content", "").strip()
+
+        if content:
+            og_url = urljoin(base_url, content)
+            filename = og_url.lower().rsplit("/", 1)[-1]
+
+            if not any(
+                keyword in filename
+                for keyword in ("logo", "favicon", "icon")
+            ):
+                return {
+                    "url": og_url,
+                    "element": None,
+                }
 
     candidates = soup.select(
-        'img[class*="thumb"], img[class*="cover"], img[id*="thumb"], img[id*="cover"], '
-        ".thumb img, .cover img"
+        'img[class*="thumb"], img[class*="cover"], '
+        'img[id*="thumb"], img[id*="cover"], '
+        ".thumb img, .cover img, "
+        "article img"
     )
     img = candidates[0] if candidates else soup.find("img")
 
@@ -533,6 +548,11 @@ def _img_src(img) -> str:
         return ""
     return src
 
+def _image_group(url: str) -> str:
+    """Group images by host and parent directory."""
+    parsed = urlparse(url)
+    parent = parsed.path.rsplit("/", 1)[0].rstrip("/")
+    return f"{parsed.netloc.lower()}{parent.lower()}"
 
 def find_chapter_images(html: str, base_url: str) -> list:
     """Heuristic to detect chapter images from a chapter page's HTML.
@@ -541,7 +561,7 @@ def find_chapter_images(html: str, base_url: str) -> list:
     (logo/icon/ads/avatar by class + URL), prefer manga CDN URL patterns,
     dedupe by absolute URL. Returns a list of image URLs (already urljoined)."""
     soup = BeautifulSoup(html, "lxml")
-    urls = []
+    candidates = []
     seen = set()
 
     for img in soup.find_all("img"):
@@ -564,12 +584,31 @@ def find_chapter_images(html: str, base_url: str) -> list:
         if url in seen:
             continue
         seen.add(url)
-        urls.append(url)
+        candidates.append(url)
 
-    # If there is a clear content URL pattern, keep only that group (filtering out
-    # decorative/CDN logo images that slipped in). Otherwise keep all already-filtered.
-    good = [u for u in urls if any(part in u.lower() for part in GOOD_IMG_URL_PARTS)]
-    return good if good else urls
+    if not candidates:
+        return []
+
+    # Prefer known comic-storage paths when available.
+    good = [
+        url for url in candidates
+        if any(part in url.lower() for part in GOOD_IMG_URL_PARTS)
+    ]
+    if good:
+        return good
+
+    # Keep only the dominant image directory.
+    groups = {}
+    for url in candidates:
+        groups.setdefault(_image_group(url), []).append(url)
+
+    dominant_group = max(groups.values(), key=len)
+
+    # A chapter normally contains multiple images in the same directory.
+    if len(dominant_group) >= 2:
+        return dominant_group
+
+    return candidates
 
 
 def main():

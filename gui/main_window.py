@@ -428,11 +428,28 @@ class MainWindow(QWidget):
     # =========================
     @asyncSlot()
     async def _restore_session(self):
+        started = time.perf_counter()
         base_path = self.left.path_input.text().strip()
         jobs = await self.engine.restore_session(base_path)
-        for job in jobs:
-            label = tr("status_resume") if job.current_chap else tr("status_paused")
-            self.right.update_queue_item(job.url, job, label)
+
+        queue = self.right.queue_list
+        queue.setUpdatesEnabled(False)
+
+        try:
+            for job in jobs:
+                # Job đã chạy rồi mới có thể Resume.
+                status = getattr(job, "status", None)
+                if status == "done_with_missing":
+                    status = "Done with missing"
+                elif status not in ("Paused", "Waiting", "Done", "Failed"):
+                    status = "Paused" if job.current_chap else ""
+
+                self.right.update_queue_item(job.url, job, status)
+        finally:
+            queue.setUpdatesEnabled(True)
+            queue.viewport().update()
+
+        self._update_pause_button()
 
     @asyncSlot()
     async def toggle_pause_engine(self):
@@ -482,16 +499,15 @@ class MainWindow(QWidget):
     # PAUSE BUTTON STATE
     # =========================
     def _update_pause_button(self):
-        """Sync the Pause button state with the engine and the queue."""
-        has_pending = any(
-            self.right.queue_list.item(i).data(Qt.ItemDataRole.UserRole)["status"]
-            not in ("Done", "Failed")
+        can_resume = any(
+            self.right.queue_list.item(i)
+            .data(Qt.ItemDataRole.UserRole)["status"] == "Paused"
             for i in range(self.right.queue_list.count())
         )
         if self.engine.running:
             self.right.btn_pause.setEnabled(True)
             self.right.btn_pause.setText(tr("pause"))
-        elif has_pending:
+        elif can_resume:
             self.right.btn_pause.setEnabled(True)
             self.right.btn_pause.setText(tr("resume"))
         else:

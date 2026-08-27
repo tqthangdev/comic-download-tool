@@ -60,7 +60,7 @@ class Engine(QObject):
             await self.queue.put(job)
             return "resume"
 
-        if status == "done":
+        if status == "done" or status == "done_with_missing":
             self.db.update_status(job.url, "waiting")
             await self.queue.put(job)
             if self.has_local_data(job):
@@ -180,12 +180,14 @@ class Engine(QObject):
                         "chapters": job.chapters,
                     }
 
-                has_failed = await self.download_job(job, data)
+                has_failed, has_missing = await self.download_job(job, data)
 
                 if has_failed:
                     await self.db.aupdate_status(job.url, "failed")
                     self.progress.emit(job.title, "Failed")
                     logger.warning(f"[{job.title}] Has failed images, marking Failed.")
+                elif has_missing:
+                    await self.finish_job(job, missing=True)
                 else:
                     await self.finish_job(job)
 
@@ -207,8 +209,13 @@ class Engine(QObject):
     async def crawl_job(self, job):
         return await self.crawler.get_chapters(job.url)
 
-    async def download_job(self, job, data) -> bool:
-        """Return True if at least one image permanently failed in the whole job."""
+    async def download_job(self, job, data):
+        """Tải cả job. Trả về (has_failed, has_missing).
+
+        - has_failed:  có ảnh lỗi mạng/server sau khi retry hết → job Failed.
+        - has_missing: có ảnh HTTP 404 (thiếu trên nguồn) nhưng quá trình vẫn
+                       diễn ra bình thường → job Done with missing images.
+        """
         await self._download_thumb(job, data)
         referer = data.get("referer") or ""
 
@@ -216,6 +223,7 @@ class Engine(QObject):
         total_chap = len(chapters)
         start_index = job.current_chap or 1
         has_failed = False
+        has_missing = False
 
         for chap_index, chap in enumerate(chapters, 1):
             if chap_index < start_index:
@@ -242,13 +250,17 @@ class Engine(QObject):
                     job.title, f"Downloading...({chap_index}/{total_chap}): {chap_percent:.0f}%"
                 )
 
-            failed_urls = await self.downloader.download_batch(imgs, chap_path, referer=referer, progress=progress_callback)
+            failed_urls, missing_urls = await self.downloader.download_batch(imgs, chap_path, referer=referer, progress=progress_callback)
 
             if failed_urls:
                 has_failed = True
                 logger.error(f"[{job.title}] Chapter {chap['title']}: {len(failed_urls)} failed images: {failed_urls}")
 
-        return has_failed
+            if missing_urls:
+                has_missing = True
+                logger.warning(f"[{job.title}] Chapter {chap['title']}: {len(missing_urls)} missing images: {missing_urls}")
+
+        return has_failed, has_missing
 
     async def _download_thumb(self, job, data):
         """Download the job's cover image (thumbnail) into job.save_path/thumb.jpg."""
@@ -268,7 +280,7 @@ class Engine(QObject):
             return
 
         referer = data.get("referer") or ""
-        failed_urls = await self.downloader.download_batch([thumb_url], thumb_path, referer=referer)
+        failed_urls, _missing = await self.downloader.download_batch([thumb_url], thumb_path, referer=referer)
 
         if failed_urls:
             logger.error(f"[{job.title}] Thumbnail download error: {thumb_url}")
@@ -304,7 +316,13 @@ class Engine(QObject):
                 failed_count = 0
         return (downloaded + failed_count) == total_images
 
-    async def finish_job(self, job):
+    async def finish_job(self, job, missing=False):
+        if missing:
+            await self.db.aupdate_status(job.url, "done_with_missing")
+            await self.db.areset_current_chap(job.url)
+            logger.warning(f"DONE WITH MISSING IMAGES: {job.title}")
+            self.progress.emit(job.title, "Done with missing images")
+            return
         await self.db.aupdate_status(job.url, "done")
         await self.db.areset_current_chap(job.url)
         logger.info(f"DONE: {job.title}")

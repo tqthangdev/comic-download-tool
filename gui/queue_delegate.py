@@ -73,6 +73,8 @@ class QueueDelegate(QStyledItemDelegate):
         match status:
             case "Done" | "Finished":
                 color = "#2196F3"
+            case "Done with missing images" | "Done with missing":
+                color = "#FF9800"
             case "Waiting":
                 color = "#FFC107"
             case "Error" | "Failed":

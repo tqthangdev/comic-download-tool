@@ -1,6 +1,7 @@
 import asyncio
 import aiohttp
 from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
 
 from core.utils import CONFIG
 from core.logger import logger
@@ -16,9 +17,14 @@ class Downloader:
     def set_session(self, session):
         self.session = session
 
+    # Result of downloading one image
+    OK = "ok"
+    MISSING = "missing"
+    FAILED = "failed"
+
     async def _download(self, url, path, referer=None, retry=None):
         if path.exists():
-            return True
+            return self.OK
 
         retry = retry or CONFIG["download_retry"]
 
@@ -46,32 +52,49 @@ class Downloader:
                             loop = asyncio.get_running_loop()
                             await loop.run_in_executor(None, path.write_bytes, data)
 
-                            return True
-                        else:
-                            last_error = f"HTTP {r.status}"
+                            return self.OK
+
+                        # HTTP 404 means the image does not exist on the storage.
+                        # This is a source data error, not a network error—retrying is useless.
+                        if r.status == 404:
+                            logger.warning(f"Image missing (HTTP 404): {url}")
+                            return self.MISSING
+
+                        last_error = f"HTTP {r.status}"
 
             except Exception as e:
                 last_error = f"{type(e).__name__}: {e}"
                 logger.warning(f"Download image attempt {attempt + 1} failed for {url} ({type(e).__name__}): {e}")
 
-            await asyncio.sleep(1)
+            # Sleep only between retries, not after the final attempt
+            if attempt < retry - 1:
+                await asyncio.sleep(1)
 
         logger.error(f"Download FAILED for URL: {url} — {last_error}")
-        return False
+        return self.FAILED
 
     async def download_batch(self, urls, save_path: Path, referer: str = None, progress=None):
+        """Download a batch of images.
+
+        Returns a tuple (failed_urls, missing_urls):
+        - failed_urls: URLs that failed due to network/server errors after all retries.
+        - missing_urls: URLs that returned HTTP 404 because the image is missing from the source.
+        """
         save_path.mkdir(parents=True, exist_ok=True)
 
         total = len(urls)
         finished = 0
         failed_urls = []
+        missing_urls = []
 
         async def task(index, url):
             nonlocal finished
             file = save_path / f"{index:04d}.jpg"
-            ok = await self._download(url, file, referer)
+            result = await self._download(url, file, referer)
 
-            if not ok:
+            if result == self.MISSING:
+                missing_urls.append(url)
+            elif result == self.FAILED:
                 failed_urls.append(url)
 
             finished += 1
@@ -81,4 +104,4 @@ class Downloader:
         tasks = [task(i, url) for i, url in enumerate(urls)]
         await asyncio.gather(*tasks)
 
-        return failed_urls
+        return failed_urls, missing_urls

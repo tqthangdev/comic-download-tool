@@ -46,6 +46,9 @@ data/*.db-*
 data/*.sqlite
 data/*.sqlite3
 
+# data json
+data/*.json
+
 # Logs
 
 logs/
