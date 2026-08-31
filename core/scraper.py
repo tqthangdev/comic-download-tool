@@ -236,7 +236,7 @@ def find_common_ancestor(elements):
     return common
 
 
-def find_row(chapter_leaf, thumb_img):
+def find_row(chapter_leaf, thumb_img, all_date_leaves):
     """
     Walk up from chapter_leaf, looking for a repeating ancestor (>=2 siblings
     with the SAME tag AND SAME class) to use as the 'row' scope.
@@ -249,6 +249,15 @@ def find_row(chapter_leaf, thumb_img):
     both are 'div' tags, so comparing tag only would stop too early at the
     item-name level (it has one other div sibling - item-time). Requiring a
     matching class is what counts as a real repeating record.
+
+    Fallback (single chapter / flat layout with no repeating rows): expand the
+    row scope outward until it ALSO contains a sibling date column. Otherwise
+    the date is cut off - e.g. hentaivn's
+        <li class="row">
+          <div class="col-xs-5 chapter"><a>Chapter 1</a></div>
+          <div class="col-xs-4 ...">1 năm trước</div>
+        </li>
+    where the fallback parent (div.chapter) does not include the date.
     """
     SKIP_STOP_TAGS = {"td", "th"}
     curr = chapter_leaf
@@ -265,6 +274,14 @@ def find_row(chapter_leaf, thumb_img):
                 return curr
         curr = parent
         steps += 1
+    # Fallback: walk up to the innermost ancestor that has a date leaf as a
+    # direct child (a sibling column of the chapter), so the date is in scope.
+    for ancestor in chapter_leaf.parents:
+        if ancestor.name == "html":
+            break
+        for child in ancestor.find_all(True, recursive=False):
+            if child is not chapter_leaf and child in all_date_leaves:
+                return ancestor
     return chapter_leaf.parent or chapter_leaf
 
 
@@ -428,7 +445,7 @@ def find_chapters(soup: BeautifulSoup, base_url: str, thumb_img):
             if url in seen_urls:
                 continue
             seen_urls.add(url)
-            row = find_row(c["element"], thumb_img)
+            row = find_row(c["element"], thumb_img, all_date_leaves)
             update_times = find_time_in_row(row, c["element"], all_date_leaves)
             chapters.append({
                 "name": c["text"],
@@ -449,7 +466,7 @@ def find_chapters(soup: BeautifulSoup, base_url: str, thumb_img):
         if url:
             seen_urls.add(url)
 
-        row = find_row(leaf, thumb_img)
+        row = find_row(leaf, thumb_img, all_date_leaves)
         update_times = find_time_in_row(row, leaf, all_date_leaves)
 
         # Skip a chapter that has no URL: this is usually 'noise' from other widgets

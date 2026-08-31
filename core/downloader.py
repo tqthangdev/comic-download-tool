@@ -1,10 +1,10 @@
 import asyncio
 import aiohttp
 from pathlib import Path
-from urllib.parse import urlsplit, urlunsplit
 
 from core.utils import CONFIG
 from core.logger import logger
+from core.scraper import get_referer
 
 
 class Downloader:
@@ -65,6 +65,7 @@ class Downloader:
             except Exception as e:
                 last_error = f"{type(e).__name__}: {e}"
                 logger.warning(f"Download image attempt {attempt + 1} failed for {url} ({type(e).__name__}): {e}")
+                url = url.replace(get_referer(url), referer)
 
             # Sleep only between retries, not after the final attempt
             if attempt < retry - 1:

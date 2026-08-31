@@ -11,6 +11,7 @@ from core.downloader import Downloader
 from core.job_manager import Job, JobManager
 from core.utils import safe_filename, CONFIG
 from core.logger import logger
+from core.scraper import get_referer
 
 class Engine(QObject):
     progress = pyqtSignal(str, str)
@@ -101,11 +102,23 @@ class Engine(QObject):
     async def stop(self):
         self.running = False
 
-        # incomplete job -> mark "paused" and put it back on the queue to resume
-        for job in list(self.active_jobs.values()):
-            self.db.update_status(job.url, "paused")
-            await self.queue.put(job)
+        active_jobs = list(self.active_jobs.values())
 
+        if active_jobs:
+            # Update DB một lần thay vì update từng job
+            self.db.update_status_bulk(
+                [job.url for job in active_jobs],
+                "paused"
+            )
+
+            # Đưa job về queue để giữ logic hiện tại
+            for i, job in enumerate(active_jobs):
+                await self.queue.put(job)
+
+                if i % 20 == 0:
+                    await asyncio.sleep(0)
+
+        # Cancel workers
         for task in self.workers:
             task.cancel()
 
@@ -113,21 +126,36 @@ class Engine(QObject):
         self.active_jobs.clear()
 
     async def restore_session(self, base_path: str = None):
-        """Restore incomplete jobs (waiting/paused/failed) from the previous
-        session back into the queue."""
-        restored = []
-        for job in self.db.get_restorable_jobs():
-            # Always use the current path (from the path input) instead of the
-            # old one in the DB, matching the "prefer current path" rule of add_job.
+        """Restore incomplete jobs from the previous session."""
+        jobs = self.db.get_restorable_jobs()
+        total = len(jobs)
+
+        for current, job in enumerate(jobs, start=1):
+            # Always use the current path from the path input
+            # instead of the old path stored in DB.
             if base_path:
                 new_path = Path(base_path) / safe_filename(job.title)
+
                 if job.save_path != new_path:
                     job.save_path = new_path
-                    self.db.update_save_path(job.url, job.save_path)
-            self.db.update_status(job.url, "waiting")
+                    self.db.update_save_path(
+                        job.url,
+                        job.save_path
+                    )
+
+            self.db.update_status(
+                job.url,
+                "waiting"
+            )
+
             await self.queue.put(job)
-            restored.append(job)
-        return restored
+
+            # Trả job về UI ngay
+            yield current, total, job
+
+            # Nhả event loop định kỳ
+            if current % 10 == 0:
+                await asyncio.sleep(0)
 
     async def sync_paths(self, base_path: str = None):
         """Apply the current save path (from the path input) to every job still
@@ -176,7 +204,7 @@ class Engine(QObject):
                     data = {
                         "title": job.title,
                         "thumb": job.thumb or "",
-                        "referer": job.referer or "",
+                        "referer": job.referer or get_referer(job.url) or "",
                         "chapters": job.chapters,
                     }
 

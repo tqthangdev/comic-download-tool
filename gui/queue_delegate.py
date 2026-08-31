@@ -90,16 +90,26 @@ class QueueDelegate(QStyledItemDelegate):
 
         painter.setPen(QColor(color))
 
-        # If the status is long (e.g. "Downloading...(2/10): 100%") shrink the font to
+        # If the status is long (e.g. "Downloading...(2/10): 100%") shrink the font t    o
         # fit the status area instead of truncating the tail.
+        MIN_FONT_SIZE = 2.0
         font = painter.font()
         if status_rect.width() < metrics.horizontalAdvance(status):
             shrink = font
-            shrink.setPointSizeF(max(6.0, font.pointSizeF() - 1))
-            while shrink.pointSizeF() > 6.0:
+            shrink.setPointSizeF(
+                max(MIN_FONT_SIZE, font.pointSizeF() - 1)
+            )
+            while shrink.pointSizeF() > MIN_FONT_SIZE:
                 if QFontMetrics(shrink).horizontalAdvance(status) <= status_rect.width():
                     break
-                shrink.setPointSizeF(shrink.pointSizeF() - 0.5)
+
+                shrink.setPointSizeF(
+                    max(
+                        MIN_FONT_SIZE,
+                        shrink.pointSizeF() - 0.5
+                    )
+                )
+
             painter.setFont(shrink)
 
         painter.drawText(

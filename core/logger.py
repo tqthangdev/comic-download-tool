@@ -1,3 +1,4 @@
+from datetime import datetime
 import logging
 
 from core.utils import BASE_DIR
@@ -6,7 +7,7 @@ from core.utils import BASE_DIR
 LOGS_DIR = BASE_DIR / "logs"
 LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
-LOG_FILE = LOGS_DIR / "error.log"
+LOG_FILE = LOGS_DIR / f"{datetime.now():%Y-%m-%d}.log"
 
 
 logger = logging.getLogger("ComicEngine")

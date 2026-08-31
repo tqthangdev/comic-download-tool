@@ -7,11 +7,12 @@ import requests
 from qasync import asyncSlot
 
 from PyQt6.QtGui import QPixmap, QCursor, QIcon
-from PyQt6.QtWidgets import QApplication, QWidget, QHBoxLayout, QMessageBox, QPushButton
-from PyQt6.QtCore import QSettings, Qt
+from PyQt6.QtWidgets import QApplication, QDialog, QProgressDialog, QWidget, QHBoxLayout, QMessageBox, QPushButton
+from PyQt6.QtCore import QSettings, QTimer, Qt
 
 from gui.ui_left import LeftPanel
 from gui.ui_right import RightPanel
+from gui.custom_dialog import RestoreDialog
 from core.logger import logger
 from core.i18n import tr, add_listener
 
@@ -109,7 +110,48 @@ class MainWindow(QWidget):
 
         self._apply_cursors()
         add_listener(self._retranslate)
-        asyncio.ensure_future(self._restore_session())
+
+        # Đợi cửa sổ render xong
+        QTimer.singleShot(100, self._start_restore)
+
+    def _start_restore(self):
+        self.restore_modal = RestoreDialog(self)
+
+        self.restore_modal.show()
+
+        # Cho modal render trước
+        QTimer.singleShot(
+            0,
+            self._run_restore
+        )
+
+
+    def _run_restore(self):
+        task = asyncio.ensure_future(
+            self._restore_session()
+        )
+
+        task.add_done_callback(
+            self._restore_finished
+        )
+
+    def _restore_finished(self, future):
+        try:
+            future.result()
+
+        except Exception:
+            logger.exception(
+                "Failed to restore session"
+            )
+
+        finally:
+            if self.restore_modal:
+                self.restore_modal.done(
+                    QDialog.DialogCode.Accepted
+                )
+
+                self.restore_modal.deleteLater()
+                self.restore_modal = None
 
     def _retranslate(self):
         self.setWindowTitle(tr("app_title"))
@@ -428,23 +470,44 @@ class MainWindow(QWidget):
     # =========================
     @asyncSlot()
     async def _restore_session(self):
-        started = time.perf_counter()
         base_path = self.left.path_input.text().strip()
-        jobs = await self.engine.restore_session(base_path)
 
         queue = self.right.queue_list
         queue.setUpdatesEnabled(False)
 
         try:
-            for job in jobs:
-                # Job đã chạy rồi mới có thể Resume.
+            async for current, total, job in self.engine.restore_session(
+                base_path
+            ):
                 status = getattr(job, "status", None)
+
                 if status == "done_with_missing":
                     status = "Done with missing"
-                elif status not in ("Paused", "Waiting", "Done", "Failed"):
+
+                elif status not in (
+                    "Paused",
+                    "Waiting",
+                    "Done",
+                    "Failed",
+                ):
                     status = "Paused" if job.current_chap else ""
 
-                self.right.update_queue_item(job.url, job, status)
+                self.right.update_queue_item(
+                    job.url,
+                    job,
+                    status
+                )
+
+                if self.restore_modal:
+                    self.restore_modal.set_progress(
+                        current,
+                        total
+                    )
+
+                # Cho Qt repaint + xử lý event
+                if current % 10 == 0:
+                    await asyncio.sleep(0)
+
         finally:
             queue.setUpdatesEnabled(True)
             queue.viewport().update()
@@ -540,7 +603,6 @@ class MainWindow(QWidget):
     # =========================
     def closeEvent(self, event):
         if self._closing:
-            # This close() call happens after _closing was set -> allow the real close
             event.accept()
             return
 
@@ -554,8 +616,16 @@ class MainWindow(QWidget):
         box.setWindowTitle(tr("close_confirm_title"))
         box.setText(msg)
         box.setIcon(QMessageBox.Icon.Question)
-        btn_yes = box.addButton(tr("yes"), QMessageBox.ButtonRole.YesRole)
-        btn_no = box.addButton(tr("no"), QMessageBox.ButtonRole.NoRole)
+
+        btn_yes = box.addButton(
+            tr("yes"),
+            QMessageBox.ButtonRole.YesRole
+        )
+        btn_no = box.addButton(
+            tr("no"),
+            QMessageBox.ButtonRole.NoRole
+        )
+
         box.setDefaultButton(btn_no)
         box.exec()
 
@@ -563,19 +633,39 @@ class MainWindow(QWidget):
             event.ignore()
             return
 
-        # Block the immediate close to stop the engine / clean up first
+        # Chặn close ngay lập tức
         event.ignore()
 
         if self.engine.running:
             logger.info("Stopping engine before exit...")
-            asyncio.ensure_future(self._graceful_shutdown())
+            asyncio.ensure_future(
+                self._graceful_shutdown()
+            )
         else:
-            self.engine.pause_idle_jobs()
+            asyncio.ensure_future(
+                self._shutdown_idle()
+            )
+
+    async def _shutdown_idle(self):
+        try:
+            # Không cần duyệt 1000 QListWidgetItem ở đây.
+            # DB sẽ là nguồn trạng thái chính.
+            await self.engine.prepare_shutdown()
+
+        except Exception:
+            logger.exception("Failed to prepare shutdown")
+
+        finally:
             self._closing = True
             self.close()
 
     async def _graceful_shutdown(self):
-        self._mark_queue_paused()
-        await self.engine.stop()
-        self._closing = True
-        self.close()
+        try:
+            await self.engine.stop()
+
+        except Exception:
+            logger.exception("Failed to stop engine")
+
+        finally:
+            self._closing = True
+            self.close()

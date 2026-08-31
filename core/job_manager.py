@@ -73,6 +73,11 @@ class JobManager:
                     "ALTER TABLE jobs ADD COLUMN thumb TEXT"
                 )
                 self.conn.commit()
+            if "referer" not in cols:
+                self.conn.execute(
+                    "ALTER TABLE jobs ADD COLUMN referer TEXT"
+                )
+                self.conn.commit()
 
     # ------------------------------------------------------------------
     # CRUD (synchronous - kept for internal use / startup, not the hot path)
@@ -131,6 +136,17 @@ class JobManager:
             self.conn.execute(
                 "UPDATE jobs SET status = ? WHERE url = ?",
                 (status, url),
+            )
+            self.conn.commit()
+
+    def update_status_bulk(self, urls: list[str], status: str):
+        if not urls:
+            return
+
+        with self._lock:
+            self.conn.executemany(
+                "UPDATE jobs SET status = ? WHERE url = ?",
+                [(status, url) for url in urls],
             )
             self.conn.commit()
 
