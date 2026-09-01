@@ -230,7 +230,9 @@ class Engine(QObject):
                         "chapters": job.chapters,
                     }
 
-                has_failed, has_missing = await self.download_job(job, data)
+                has_failed, has_missing, missing_details = await self.download_job(
+                    job, data
+                )
 
                 if has_failed:
                     await self.db.aupdate_status(job.url, "failed")
@@ -239,7 +241,9 @@ class Engine(QObject):
                         f"[{job.title}] Has failed images, marking Failed."
                     )
                 elif has_missing:
-                    await self.finish_job(job, missing=True)
+                    await self.finish_job(
+                        job, missing=True, missing_details=missing_details
+                    )
                 else:
                     await self.finish_job(job)
 
@@ -272,6 +276,7 @@ class Engine(QObject):
         start_index = job.current_chap or 1
         has_failed = False
         has_missing = False
+        missing_details = {}  # chapter title -> list of missing image urls
 
         for chap_index, chap in enumerate(chapters, 1):
             if chap_index < start_index:
@@ -312,11 +317,12 @@ class Engine(QObject):
 
             if missing_urls:
                 has_missing = True
+                missing_details[chap["title"]] = missing_urls
                 logger.warning(
                     f"[{job.title}] Chapter {chap['title']}: {len(missing_urls)} missing images: {missing_urls}"
                 )
 
-        return has_failed, has_missing
+        return has_failed, has_missing, missing_details
 
     async def _download_thumb(self, job, data):
         if not CONFIG.get("download_thumb", True):
@@ -373,11 +379,22 @@ class Engine(QObject):
                 failed_count = 0
         return (downloaded + failed_count) == total_images
 
-    async def finish_job(self, job, missing=False):
+    async def finish_job(self, job, missing=False, missing_details=None):
         if missing:
             await self.db.aupdate_status(job.url, "done_with_missing")
             await self.db.areset_current_chap(job.url)
-            logger.warning(f"DONE WITH MISSING IMAGES: {job.title}")
+
+            missing_details = missing_details or {}
+            total_missing = sum(len(urls) for urls in missing_details.values())
+            logger.warning(
+                f"DONE WITH MISSING IMAGES: {job.title} "
+                f"({total_missing} images across {len(missing_details)} chapters)"
+            )
+            for chap_title, urls in missing_details.items():
+                logger.warning(
+                    f"[{job.title}] Missing in chapter '{chap_title}': {urls}"
+                )
+
             self.progress.emit(job.title, "Done with missing images")
             return
         await self.db.aupdate_status(job.url, "done")
