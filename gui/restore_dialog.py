@@ -1,7 +1,6 @@
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtWidgets import (
     QDialog,
-    QHBoxLayout,
     QLabel,
     QProgressBar,
     QVBoxLayout,
@@ -15,7 +14,7 @@ class RestoreDialog(QDialog):
         self.setWindowTitle("Please wait")
         self.setWindowModality(Qt.WindowModality.ApplicationModal)
 
-        # Không minimize / maximize / close
+        # Disable minimize, maximize, and close buttons
         self.setWindowFlags(Qt.WindowType.Dialog)
 
         self.setFixedSize(320, 110)
@@ -43,9 +42,9 @@ class RestoreDialog(QDialog):
         )
 
     def closeEvent(self, event):
-        # Không cho user đóng
+        # Prevent the user from closing
         event.ignore()
 
     def reject(self):
-        # Chặn ESC
+        # Prevent ESC from closing
         pass
