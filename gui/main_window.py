@@ -22,7 +22,7 @@ class MainWindow(QWidget):
     def __init__(self, engine):
         super().__init__()
 
-        # Đặt icon cho cửa sổ chính (hoạt động cả khi dev lẫn khi đã build)
+        # Set the main window icon (works both in development and after building)
         base = Path(sys.executable).parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent.parent
         icon_path = base / "assets" / "icon.png"
         if icon_path.exists():
@@ -105,13 +105,15 @@ class MainWindow(QWidget):
         self.left.btn_add.clicked.connect(self.add_queue)
 
         self.right.btn_start.clicked.connect(self.start_engine)
+        self.right.btn_resume.clicked.connect(self.toggle_resume_engine)
         self.right.btn_pause.clicked.connect(self.toggle_pause_engine)
         self.engine.progress.connect(self.right.update_progress)
+        self.engine.finished.connect(self._update_pause_button)
 
         self._apply_cursors()
         add_listener(self._retranslate)
 
-        # Đợi cửa sổ render xong
+        # Wait for the window to finish rendering
         QTimer.singleShot(100, self._start_restore)
 
     def _start_restore(self):
@@ -119,7 +121,7 @@ class MainWindow(QWidget):
 
         self.restore_modal.show()
 
-        # Cho modal render trước
+        # Let the modal render first
         QTimer.singleShot(
             0,
             self._run_restore
@@ -504,7 +506,7 @@ class MainWindow(QWidget):
                         total
                     )
 
-                # Cho Qt repaint + xử lý event
+                # Let Qt repaint and process events
                 if current % 10 == 0:
                     await asyncio.sleep(0)
 
@@ -514,13 +516,23 @@ class MainWindow(QWidget):
 
         self._update_pause_button()
 
+    # =========================
+    # BTN PAUSE
+    # =========================
     @asyncSlot()
     async def toggle_pause_engine(self):
         if self.engine.running:
             await self.engine.stop()
             self._mark_queue_paused()
-            self.right.btn_pause.setText(tr("resume"))
-        else:
+
+        self._update_pause_button()
+
+    # =========================
+    # BTN RESUME
+    # =========================
+    @asyncSlot()
+    async def toggle_resume_engine(self):
+        if not self.engine.running:
             if self.right.queue_list.count() == 0:
                 return
             if not self._check_save_path_exists():
@@ -531,7 +543,7 @@ class MainWindow(QWidget):
             base_path = self.left.path_input.text().strip()
             await self.engine.sync_paths(base_path)
             await self.engine.start()
-            self.right.btn_pause.setText(tr("pause"))
+
         self._update_pause_button()
 
     # =========================
@@ -550,7 +562,6 @@ class MainWindow(QWidget):
         if not self._check_save_path_exists():
             return
         self._mark_queue_starting()
-        self.right.btn_pause.setText(tr("pause"))
         # Re-apply the current save path (from the path input) so a changed
         # folder is used instead of the old one captured at Add Queue time.
         base_path = self.left.path_input.text().strip()
@@ -567,15 +578,18 @@ class MainWindow(QWidget):
             .data(Qt.ItemDataRole.UserRole)["status"] == "Paused"
             for i in range(self.right.queue_list.count())
         )
+
         if self.engine.running:
+            self.right.btn_resume.setEnabled(False)
             self.right.btn_pause.setEnabled(True)
-            self.right.btn_pause.setText(tr("pause"))
+
         elif can_resume:
-            self.right.btn_pause.setEnabled(True)
-            self.right.btn_pause.setText(tr("resume"))
-        else:
+            self.right.btn_resume.setEnabled(True)
             self.right.btn_pause.setEnabled(False)
-            self.right.btn_pause.setText(tr("pause"))
+
+        else:
+            self.right.btn_resume.setEnabled(False)
+            self.right.btn_pause.setEnabled(False)
 
     # =========================
     # MARK ALL QUEUE ITEMS AS PAUSED (UI)
@@ -633,7 +647,7 @@ class MainWindow(QWidget):
             event.ignore()
             return
 
-        # Chặn close ngay lập tức
+        # Prevent immediate closing
         event.ignore()
 
         if self.engine.running:
@@ -648,9 +662,10 @@ class MainWindow(QWidget):
 
     async def _shutdown_idle(self):
         try:
-            # Không cần duyệt 1000 QListWidgetItem ở đây.
-            # DB sẽ là nguồn trạng thái chính.
-            await self.engine.prepare_shutdown()
+            if hasattr(self.engine, "prepare_shutdown"):
+                await self.engine.prepare_shutdown()
+            else:
+                logger.info("No prepare_shutdown method found in engine, skipping...")
 
         except Exception:
             logger.exception("Failed to prepare shutdown")

@@ -31,6 +31,7 @@ class RightPanel(QWidget):
 
         # ================= BUTTON ROW (top) =================
         self.btn_start = QPushButton(tr("start"))
+        self.btn_resume = QPushButton(tr("resume"))
         self.btn_pause = QPushButton(tr("pause"))
         self.btn_clear = QPushButton(tr("clear_done"))
 
@@ -39,6 +40,7 @@ class RightPanel(QWidget):
         btn_row.setSpacing(6)
 
         btn_row.addWidget(self.btn_start)
+        btn_row.addWidget(self.btn_resume)
         btn_row.addWidget(self.btn_pause)
         btn_row.addWidget(self.btn_clear)
 
@@ -64,6 +66,7 @@ class RightPanel(QWidget):
 
     def retranslate(self):
         self.btn_start.setText(tr("start"))
+        self.btn_resume.setText(tr("resume"))
         self.btn_pause.setText(tr("pause"))
         self.btn_clear.setText(tr("clear_done"))
         self.queue_label.setText(tr("queue"))

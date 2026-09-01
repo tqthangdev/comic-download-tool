@@ -1,20 +1,23 @@
 import asyncio
+from pathlib import Path
 import traceback
 import aiohttp
-
 from PyQt6.QtCore import QObject, pyqtSignal
-
-from pathlib import Path
 
 from core.crawler import Crawler
 from core.downloader import Downloader
 from core.job_manager import Job, JobManager
-from core.utils import safe_filename, CONFIG
 from core.logger import logger
 from core.scraper import get_referer
+from core.utils import CONFIG, safe_filename
+
 
 class Engine(QObject):
     progress = pyqtSignal(str, str)
+    # Emitted whenever the running state changes on its own (e.g. the queue
+    # finishes naturally, or a job crashes) so the UI can resync the
+    # pause/resume buttons without waiting for a manual pause/resume click.
+    finished = pyqtSignal()
 
     def __init__(self, max_workers=3):
         super().__init__()
@@ -25,7 +28,10 @@ class Engine(QObject):
         self.downloader = Downloader()
         self.db = JobManager()
         self.running = False
-        self.active_jobs = {}  # url -> currently running Job, for stop() to retrieve
+        self.active_jobs = (
+            {}
+        )  # url -> currently running Job, for stop() to retrieve
+        self._run_task = None  # background task created by start()
 
     async def add_job(self, job: Job):
         existing = self.db.get_job(job.url)
@@ -76,28 +82,51 @@ class Engine(QObject):
         return "queued"
 
     async def start(self):
+        """Mark the engine as running and kick off the worker pool in the
+
+        background, then return immediately.
+        """
         if self.running:
             return
         self.running = True
+        self._run_task = asyncio.ensure_future(self._run_workers())
 
-        headers = {"User-Agent": CONFIG.get("user_agent", "")}
+    async def _run_workers(self):
+        try:
+            headers = {"User-Agent": CONFIG.get("user_agent", "")}
 
-        async with aiohttp.ClientSession(headers=headers) as session:
-            self.downloader.set_session(session)
-            self.crawler.set_http_session(session)
+            # MAXIMIZE AIOHTTP NETWORK CONFIGURATION
+            connector = aiohttp.TCPConnector(
+                limit=0,  # No limit on total open connections (managed by the Downloader's Semaphore)
+                limit_per_host=0,  # Remove aiohttp's default limit of 20 connections/domain
+                ttl_dns_cache=300,  # Cache DNS results for 5 minutes to speed up connections
+                enable_cleanup_closed=True,  # Automatically clean up closed sockets
+                keepalive_timeout=30,  # Keep connections alive longer for reuse
+            )
 
-            self.workers = [
-                asyncio.create_task(self.worker(i))
-                for i in range(self.max_workers)
-            ]
+            async with aiohttp.ClientSession(
+                headers=headers, connector=connector
+            ) as session:
+                self.downloader.set_session(session)
+                self.crawler.set_http_session(session)
 
-            # return_exceptions=True: cancelled workers (CancelledError) are gathered
-            # into the result instead of bubbling up to start_engine() and
-            # raising an "unhandled exception" inside an asyncSlot.
-            await asyncio.gather(*self.workers, return_exceptions=True)
+                self.workers = [
+                    asyncio.create_task(self.worker(i))
+                    for i in range(self.max_workers)
+                ]
 
-        self.running = False
-        self.workers.clear()
+                # return_exceptions=True: cancelled workers (CancelledError) are
+                # gathered into the result instead of bubbling up and raising an
+                # "unhandled exception" from a background task.
+                await asyncio.gather(*self.workers, return_exceptions=True)
+
+        finally:
+            self.running = False
+            self.workers.clear()
+            self._run_task = None
+            # Let the UI know the run ended (naturally or by error) so it can
+            # resync the pause/resume buttons even if the user never clicked Pause.
+            self.finished.emit()
 
     async def stop(self):
         self.running = False
@@ -105,13 +134,12 @@ class Engine(QObject):
         active_jobs = list(self.active_jobs.values())
 
         if active_jobs:
-            # Update DB một lần thay vì update từng job
+            # Update the DB once instead of updating each job individually
             self.db.update_status_bulk(
-                [job.url for job in active_jobs],
-                "paused"
+                [job.url for job in active_jobs], "paused"
             )
 
-            # Đưa job về queue để giữ logic hiện tại
+            # Put the job back into the queue to preserve the current logic
             for i, job in enumerate(active_jobs):
                 await self.queue.put(job)
 
@@ -125,46 +153,43 @@ class Engine(QObject):
         self.workers.clear()
         self.active_jobs.clear()
 
+        # Wait for the background run task to yield completely
+        if self._run_task:
+            try:
+                await self._run_task
+            except (asyncio.CancelledError, Exception):
+                pass
+            self._run_task = None
+
     async def restore_session(self, base_path: str = None):
         """Restore incomplete jobs from the previous session."""
         jobs = self.db.get_restorable_jobs()
         total = len(jobs)
 
         for current, job in enumerate(jobs, start=1):
-            # Always use the current path from the path input
-            # instead of the old path stored in DB.
             if base_path:
                 new_path = Path(base_path) / safe_filename(job.title)
 
                 if job.save_path != new_path:
                     job.save_path = new_path
-                    self.db.update_save_path(
-                        job.url,
-                        job.save_path
-                    )
+                    self.db.update_save_path(job.url, job.save_path)
 
-            self.db.update_status(
-                job.url,
-                "waiting"
-            )
+            self.db.update_status(job.url, "waiting")
 
             await self.queue.put(job)
 
-            # Trả job về UI ngay
+            # Return job to UI immediately
             yield current, total, job
 
-            # Nhả event loop định kỳ
+            # Yield event loop periodically
             if current % 10 == 0:
                 await asyncio.sleep(0)
 
     async def sync_paths(self, base_path: str = None):
-        """Apply the current save path (from the path input) to every job still
-        waiting in the queue, so changing the target folder before Start takes
-        effect instead of using the old path captured at Add Queue time."""
+        """Apply current save path to queued jobs."""
         if not base_path:
             return
 
-        # Drain the queue, update each pending job's path, then put them back.
         pending = []
         while not self.queue.empty():
             job = self.queue.get_nowait()
@@ -189,9 +214,6 @@ class Engine(QObject):
                 await self.db.aupdate_status(job.url, "running")
                 logger.info(f"[W{wid}] {job.title}")
 
-                # If the job was added while the app was running, chapters/thumb already
-                # exist (from preview) — only re-crawl when the job was restored
-                # (no chapters yet).
                 if not job.chapters:
                     data = await self.crawl_job(job)
                     job.chapters = data.get("chapters") or []
@@ -213,7 +235,9 @@ class Engine(QObject):
                 if has_failed:
                     await self.db.aupdate_status(job.url, "failed")
                     self.progress.emit(job.title, "Failed")
-                    logger.warning(f"[{job.title}] Has failed images, marking Failed.")
+                    logger.warning(
+                        f"[{job.title}] Has failed images, marking Failed."
+                    )
                 elif has_missing:
                     await self.finish_job(job, missing=True)
                 else:
@@ -223,7 +247,9 @@ class Engine(QObject):
                 raise
 
             except Exception as e:
-                logger.error(f"ERROR processing job [{job.title}]: {e}", exc_info=True)
+                logger.error(
+                    f"ERROR processing job [{job.title}]: {e}", exc_info=True
+                )
                 await self.db.aupdate_status(job.url, "failed")
                 self.progress.emit(job.title, "Failed")
 
@@ -238,12 +264,6 @@ class Engine(QObject):
         return await self.crawler.get_chapters(job.url)
 
     async def download_job(self, job, data):
-        """Tải cả job. Trả về (has_failed, has_missing).
-
-        - has_failed:  có ảnh lỗi mạng/server sau khi retry hết → job Failed.
-        - has_missing: có ảnh HTTP 404 (thiếu trên nguồn) nhưng quá trình vẫn
-                       diễn ra bình thường → job Done with missing images.
-        """
         await self._download_thumb(job, data)
         referer = data.get("referer") or ""
 
@@ -266,7 +286,8 @@ class Engine(QObject):
             if self.verify_chapter(chap_path, len(imgs)):
                 if self.running:
                     self.progress.emit(
-                        job.title, f"Downloading...({chap_index}/{total_chap}): 100%"
+                        job.title,
+                        f"Downloading...({chap_index}/{total_chap}): 100%",
                     )
                 continue
 
@@ -275,23 +296,29 @@ class Engine(QObject):
                     return
                 chap_percent = (current / total * 100) if total else 0
                 self.progress.emit(
-                    job.title, f"Downloading...({chap_index}/{total_chap}): {chap_percent:.0f}%"
+                    job.title,
+                    f"Downloading...({chap_index}/{total_chap}): {chap_percent:.0f}%",
                 )
 
-            failed_urls, missing_urls = await self.downloader.download_batch(imgs, chap_path, referer=referer, progress=progress_callback)
+            failed_urls, missing_urls = await self.downloader.download_batch(
+                imgs, chap_path, referer=referer, progress=progress_callback
+            )
 
             if failed_urls:
                 has_failed = True
-                logger.error(f"[{job.title}] Chapter {chap['title']}: {len(failed_urls)} failed images: {failed_urls}")
+                logger.error(
+                    f"[{job.title}] Chapter {chap['title']}: {len(failed_urls)} failed images: {failed_urls}"
+                )
 
             if missing_urls:
                 has_missing = True
-                logger.warning(f"[{job.title}] Chapter {chap['title']}: {len(missing_urls)} missing images: {missing_urls}")
+                logger.warning(
+                    f"[{job.title}] Chapter {chap['title']}: {len(missing_urls)} missing images: {missing_urls}"
+                )
 
         return has_failed, has_missing
 
     async def _download_thumb(self, job, data):
-        """Download the job's cover image (thumbnail) into job.save_path/thumb.jpg."""
         if not CONFIG.get("download_thumb", True):
             return
 
@@ -301,20 +328,20 @@ class Engine(QObject):
 
         thumb_path = job.save_path
 
-        # Skip if thumb.jpg already exists (resume/rerun) — only check that specific
-        # file, NOT the folder contents (a folder with chapters but no thumb
-        # must still be downloaded).
         if (thumb_path / "thumb.jpg").exists():
             return
 
         referer = data.get("referer") or ""
-        failed_urls, _missing = await self.downloader.download_batch([thumb_url], thumb_path, referer=referer)
+        failed_urls, _missing = await self.downloader.download_batch(
+            [thumb_url], thumb_path, referer=referer
+        )
 
         if failed_urls:
-            logger.error(f"[{job.title}] Thumbnail download error: {thumb_url}")
+            logger.error(
+                f"[{job.title}] Thumbnail download error: {thumb_url}"
+            )
             return
 
-        # download_batch names files "0000.jpg" by index -> rename for clarity
         raw_file = thumb_path / "0000.jpg"
         if raw_file.exists():
             raw_file.rename(thumb_path / "thumb.jpg")
@@ -325,10 +352,12 @@ class Engine(QObject):
             try:
                 return await self.crawler.extract_images(url)
             except asyncio.CancelledError:
-                raise  # do not retry on an intentional pause/cancel
+                raise
             except Exception as e:
                 last_err = e
-                logger.warning(f"Retry extract_images ({attempt + 1}/{retries}) due to error: {e}")
+                logger.warning(
+                    f"Retry extract_images ({attempt + 1}/{retries}) due to error: {e}"
+                )
         raise last_err
 
     def verify_chapter(self, path, total_images):

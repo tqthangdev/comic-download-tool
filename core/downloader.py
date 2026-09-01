@@ -1,17 +1,18 @@
 import asyncio
-import aiohttp
 from pathlib import Path
-
-from core.utils import CONFIG
+import aiohttp
 from core.logger import logger
 from core.scraper import get_referer
+from core.utils import CONFIG
 
 
 class Downloader:
 
     def __init__(self, max_concurrent_downloads=None):
         self.session = None
-        max_concurrent = max_concurrent_downloads or CONFIG["max_concurrent_downloads"]
+        max_concurrent = (
+            max_concurrent_downloads or CONFIG["max_concurrent_downloads"]
+        )
         self._semaphore = asyncio.Semaphore(max_concurrent)
 
     def set_session(self, session):
@@ -21,6 +22,17 @@ class Downloader:
     OK = "ok"
     MISSING = "missing"
     FAILED = "failed"
+
+    async def _write_file_async(self, path: Path, data: bytes):
+        """Write files without blocking the Event Loop by using traditional binary file I/O."""
+        loop = asyncio.get_running_loop()
+
+        # Use a simple lambda to write the file
+        def _write():
+            with open(path, "wb") as f:
+                f.write(data)
+
+        await loop.run_in_executor(None, _write)
 
     async def _download(self, url, path, referer=None, retry=None):
         if path.exists():
@@ -39,23 +51,25 @@ class Downloader:
 
         for attempt in range(retry):
             try:
-                async with self._semaphore:  # limit concurrent requests
+                # Wrap the Semaphore ONLY around the HTTP request & data retrieval
+                # Releases the Semaphore immediately when the network operation completes (avoids holding a slot while sleeping during retries)
+                async with self._semaphore:
                     async with self.session.get(
-                            url,
-                            headers=headers,
-                            timeout=aiohttp.ClientTimeout(total=CONFIG["request_timeout"])
+                        url,
+                        headers=headers,
+                        timeout=aiohttp.ClientTimeout(
+                            total=CONFIG["request_timeout"]
+                        ),
                     ) as r:
+
                         if r.status == 200:
                             data = await r.read()
 
-                            # Write the file in an executor to avoid blocking the event loop
-                            loop = asyncio.get_running_loop()
-                            await loop.run_in_executor(None, path.write_bytes, data)
-
+                            # Move disk I/O OUTSIDE the Semaphore block
+                            # Frees up the network connection slot immediately for the next URL
+                            await self._write_file_async(path, data)
                             return self.OK
 
-                        # HTTP 404 means the image does not exist on the storage.
-                        # This is a source data error, not a network error—retrying is useless.
                         if r.status == 404:
                             logger.warning(f"Image missing (HTTP 404): {url}")
                             return self.MISSING
@@ -64,23 +78,21 @@ class Downloader:
 
             except Exception as e:
                 last_error = f"{type(e).__name__}: {e}"
-                logger.warning(f"Download image attempt {attempt + 1} failed for {url} ({type(e).__name__}): {e}")
+                logger.warning(
+                    f"Download image attempt {attempt + 1} failed for {url} ({type(e).__name__}): {e}"
+                )
                 url = url.replace(get_referer(url), referer)
 
-            # Sleep only between retries, not after the final attempt
+            # Sleep between retries outside the Semaphore
             if attempt < retry - 1:
                 await asyncio.sleep(1)
 
         logger.error(f"Download FAILED for URL: {url} — {last_error}")
         return self.FAILED
 
-    async def download_batch(self, urls, save_path: Path, referer: str = None, progress=None):
-        """Download a batch of images.
-
-        Returns a tuple (failed_urls, missing_urls):
-        - failed_urls: URLs that failed due to network/server errors after all retries.
-        - missing_urls: URLs that returned HTTP 404 because the image is missing from the source.
-        """
+    async def download_batch(
+        self, urls, save_path: Path, referer: str = None, progress=None
+    ):
         save_path.mkdir(parents=True, exist_ok=True)
 
         total = len(urls)
@@ -88,19 +100,23 @@ class Downloader:
         failed_urls = []
         missing_urls = []
 
+        # Lock to protect the finished counter and list when multiple coroutines write to them concurrently
+        lock = asyncio.Lock()
+
         async def task(index, url):
             nonlocal finished
             file = save_path / f"{index:04d}.jpg"
             result = await self._download(url, file, referer)
 
-            if result == self.MISSING:
-                missing_urls.append(url)
-            elif result == self.FAILED:
-                failed_urls.append(url)
+            async with lock:
+                if result == self.MISSING:
+                    missing_urls.append(url)
+                elif result == self.FAILED:
+                    failed_urls.append(url)
 
-            finished += 1
-            if progress:
-                progress(finished, total)
+                finished += 1
+                if progress:
+                    progress(finished, total)
 
         tasks = [task(i, url) for i, url in enumerate(urls)]
         await asyncio.gather(*tasks)

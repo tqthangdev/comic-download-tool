@@ -50,6 +50,7 @@ _setup_playwright_browsers_path()
 # --- Normal app run mode ---
 import asyncio
 import traceback
+from concurrent.futures import ThreadPoolExecutor
 
 from PyQt6.QtWidgets import QApplication
 from qasync import QEventLoop
@@ -71,6 +72,15 @@ def main():
 
     loop = QEventLoop(app)
     asyncio.set_event_loop(loop)
+
+    # The default thread pool is shared by crawling, file I/O, and URL preview tasks.
+    # Under heavy downloads, it can become saturated and make previews lag.
+    # Use a larger pool to keep interactive tasks responsive.
+    max_workers_cfg = CONFIG.get("max_workers", 10)
+    max_concurrent_downloads_cfg = CONFIG.get("max_concurrent_downloads", 10)
+    # Reserve extra threads for interactive tasks (preview, thumbnail fetch, etc.)
+    executor_size = max_workers_cfg + max_concurrent_downloads_cfg + 8
+    loop.set_default_executor(ThreadPoolExecutor(max_workers=executor_size))
 
     engine = Engine(max_workers=CONFIG["max_workers"])
     window = MainWindow(engine)
