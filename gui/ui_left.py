@@ -70,17 +70,30 @@ class LeftPanel(QWidget):
         settings_layout.setContentsMargins(0, 0, 0, 0)
         settings_layout.setSpacing(6)
 
+        checkbox_col = QVBoxLayout()
+        checkbox_col.setContentsMargins(0, 0, 0, 0)
+        checkbox_col.setSpacing(2)
+
+        self.shutdown_cb = QCheckBox(tr("shutdown_after_done"))
+        shutdown_saved = self.settings.value("shutdown_after_done", False, type=bool)
+        self.shutdown_cb.setChecked(shutdown_saved)
+        self.shutdown_cb.toggled.connect(self.on_shutdown_toggled)
+
         self.auto_queue_cb = QCheckBox(tr("auto_queue"))
         auto_queue_saved = self.settings.value("auto_queue", False, type=bool)
         self.auto_queue_cb.setChecked(auto_queue_saved)
         self.auto_queue_cb.toggled.connect(self.on_auto_queue_toggled)
 
+        checkbox_col.addWidget(self.shutdown_cb)
+        checkbox_col.addWidget(self.auto_queue_cb)
+
         self.btn_settings = QPushButton(tr("settings"))
         self.btn_settings.setFixedWidth(80)
         self.btn_settings.clicked.connect(self.open_settings)
 
-        settings_layout.addWidget(self.auto_queue_cb, 1)
+        settings_layout.addLayout(checkbox_col, 1)
         settings_layout.addWidget(self.btn_settings)
+        settings_layout.setAlignment(self.btn_settings, Qt.AlignmentFlag.AlignTop)
 
         # ================= PATH AREA =================
         path_area = QWidget()
@@ -225,6 +238,12 @@ class LeftPanel(QWidget):
         self.settings.setValue("auto_queue", checked)
 
     # =========================
+    # checkbox "Shutdown when done"
+    # =========================
+    def on_shutdown_toggled(self, checked):
+        self.settings.setValue("shutdown_after_done", checked)
+
+    # =========================
     # UPDATE TEXT WHEN THE LANGUAGE CHANGES
     # =========================
     def retranslate(self):
@@ -235,6 +254,7 @@ class LeftPanel(QWidget):
         self.btn_settings.setText(tr("settings"))
         self.btn_add.setText(tr("add_queue"))
         self.auto_queue_cb.setText(tr("auto_queue"))
+        self.shutdown_cb.setText(tr("shutdown_after_done"))
 
     # =========================
     # SETTINGS MODAL (read/write config.json)
