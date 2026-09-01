@@ -97,7 +97,9 @@ class RightPanel(QWidget):
                 "url": job.url,
                 "title": job.title,
                 "status": status,
-                "path": str(job.save_path)
+                "path": str(job.save_path),
+                "chapters": job.chapters,
+                "referer": job.referer,
             }
         )
 
@@ -126,10 +128,10 @@ class RightPanel(QWidget):
                 return
 
     def clear_done(self):
-        """Remove all queue items with status 'Done'."""
+        """Remove all queue items with status 'Done', 'Done with missing images' """
         for i in range(self.queue_list.count() - 1, -1, -1):  # iterate backwards
             item = self.queue_list.item(i)
             data = item.data(Qt.ItemDataRole.UserRole)
 
-            if data and data.get("status") == "Done":
+            if data and data.get("status") in ["Done", "Done with missing images"]:
                 self.queue_list.takeItem(i)

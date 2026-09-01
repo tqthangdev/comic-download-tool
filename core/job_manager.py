@@ -106,11 +106,11 @@ class JobManager:
         with self._lock:
             self.conn.execute(
                 """
-                INSERT OR IGNORE INTO jobs (url, title, save_path, status, current_chap, chapters, thumb)
-                VALUES (?, ?, ?, 'waiting', NULL, ?, ?)
+                INSERT OR IGNORE INTO jobs (url, title, save_path, status, current_chap, chapters, thumb, referer)
+                VALUES (?, ?, ?, 'waiting', NULL, ?, ?, ?)
                 """,
                 (job.url, job.title, str(job.save_path),
-                 self._chapters_to_json(job.chapters), job.thumb),
+                 self._chapters_to_json(job.chapters), job.thumb, job.referer),
             )
             self.conn.commit()
 
@@ -129,6 +129,7 @@ class JobManager:
             status=row["status"],
             chapters=self._chapters_from_json(row["chapters"]),
             thumb=row["thumb"],
+            referer=row["referer"],
         )
 
     def update_status(self, url: str, status: str):

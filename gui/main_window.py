@@ -7,12 +7,12 @@ import requests
 from qasync import asyncSlot
 
 from PyQt6.QtGui import QPixmap, QCursor, QIcon
-from PyQt6.QtWidgets import QApplication, QDialog, QProgressDialog, QWidget, QHBoxLayout, QMessageBox, QPushButton
+from PyQt6.QtWidgets import QApplication, QDialog, QWidget, QHBoxLayout, QMessageBox, QPushButton
 from PyQt6.QtCore import QSettings, QTimer, Qt
 
 from gui.ui_left import LeftPanel
 from gui.ui_right import RightPanel
-from gui.custom_dialog import RestoreDialog
+from gui.restore_dialog import RestoreDialog
 from core.logger import logger
 from core.i18n import tr, add_listener
 
@@ -598,7 +598,7 @@ class MainWindow(QWidget):
         for i in range(self.right.queue_list.count()):
             item = self.right.queue_list.item(i)
             data = item.data(Qt.ItemDataRole.UserRole)
-            if data["status"] != "Done":
+            if data["status"] not in ("Done", "Failed", "Done with missing images"):
                 data["status"] = "Paused"
                 item.setData(Qt.ItemDataRole.UserRole, data)
         self.right.queue_list.viewport().update()
@@ -607,7 +607,7 @@ class MainWindow(QWidget):
         for i in range(self.right.queue_list.count()):
             item = self.right.queue_list.item(i)
             data = item.data(Qt.ItemDataRole.UserRole)
-            if data["status"] not in ("Done", "Failed"):
+            if data["status"] not in ("Done", "Failed", "Done with missing images"):
                 data["status"] = "Waiting"
                 item.setData(Qt.ItemDataRole.UserRole, data)
         self.right.queue_list.viewport().update()
