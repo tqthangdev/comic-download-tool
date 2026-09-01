@@ -57,9 +57,9 @@ TRANSLATIONS = {
         "save_error": "Không thể ghi config.json. Kiểm tra quyền thư mục.",
         # Settings fields (label, key, desc)
         "field_max_workers": "Số truyện tải song song (worker)",
-        "field_max_workers_desc": "Số truyện được xử lý cùng lúc.\n\nKhuyến nghị: 3-5. Đặt quá cao (10+) khiến máy lag, chiếm nhiều RAM/CPU và dễ bị website chặn.",
+        "field_max_workers_desc": "Số truyện được xử lý cùng lúc.\n\nKhuyến nghị: 30-50. Đặt quá cao (100+) khiến máy lag, chiếm nhiều RAM/CPU và dễ bị website chặn.",
         "field_max_concurrent": "Tổng số ảnh tải đồng thời",
-        "field_max_concurrent_desc": "Số request tải ảnh tối đa cùng lúc trên toàn app (chia sẻ giữa mọi truyện đang tải).\n\nKhuyến nghị: 4-8. Quá cao làm nghẽn băng thông, ảnh lỗi nhiều và có thể bị chặn IP.",
+        "field_max_concurrent_desc": "Số request tải ảnh tối đa cùng lúc trên toàn app (chia sẻ giữa mọi truyện đang tải).\n\nKhuyến nghị: 40-80. Quá cao làm nghẽn băng thông, ảnh lỗi nhiều và có thể bị chặn IP.",
         "field_download_retry": "Số lần thử lại khi tải ảnh lỗi",
         "field_download_retry_desc": "Khi tải 1 ảnh thất bại, tự động thử lại bao nhiêu lần.\n\nKhuyến nghị: 2-3. Quá cao làm chậm cả queue khi ảnh thực sự hỏng (thử lại vô ích).",
         "field_chapter_retry": "Số lần thử lại khi lấy danh sách chapter lỗi",
@@ -132,9 +132,9 @@ TRANSLATIONS = {
         "save_error": "Failed to write config.json. Check folder permissions.",
         # Settings fields
         "field_max_workers": "Parallel comics (workers)",
-        "field_max_workers_desc": "How many comics are processed at the same time.\n\nRecommended: 3-5. Setting too high (10+) slows down the machine, uses more RAM/CPU and may get blocked by websites.",
+        "field_max_workers_desc": "How many comics are processed at the same time.\n\nRecommended: 30-50. Setting too high (100+) slows down the machine, uses more RAM/CPU and may get blocked by websites.",
         "field_max_concurrent": "Total concurrent image downloads",
-        "field_max_concurrent_desc": "Maximum number of image requests at once across the whole app (shared between all downloading comics).\n\nRecommended: 4-8. Too high saturates bandwidth, causes more failed images and may get your IP blocked.",
+        "field_max_concurrent_desc": "Maximum number of image requests at once across the whole app (shared between all downloading comics).\n\nRecommended: 40-80. Too high saturates bandwidth, causes more failed images and may get your IP blocked.",
         "field_download_retry": "Image download retries",
         "field_download_retry_desc": "How many times to retry when an image download fails.\n\nRecommended: 2-3. Too high slows the whole queue when an image is really broken (useless retries).",
         "field_chapter_retry": "Chapter list retries",
