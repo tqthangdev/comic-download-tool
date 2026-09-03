@@ -5,7 +5,7 @@ import aiohttp
 from PyQt6.QtCore import QObject, pyqtSignal
 
 from core.crawler import Crawler
-from core.downloader import Downloader
+from core.downloader import Downloader, CONTENT_TYPE_EXT
 from core.job_manager import Job, JobManager
 from core.logger import logger
 from core.scraper import get_referer
@@ -32,6 +32,10 @@ class Engine(QObject):
             {}
         )  # url -> currently running Job, for stop() to retrieve
         self._run_task = None  # background task created by start()
+        # urls the user asked to delete while a job was actively downloading;
+        # checked by download_job() so it can bail out early instead of
+        # finishing the whole job after the record has already been removed.
+        self.deleted_urls = set()
 
     async def add_job(self, job: Job):
         existing = self.db.get_job(job.url)
@@ -80,6 +84,40 @@ class Engine(QObject):
 
         await self.queue.put(job)
         return "queued"
+
+    async def del_job(self, url: str) -> bool:
+        """Delete a job entirely: drop it from the queue if it's still
+        'waiting', flag it so an in-progress worker stops early, and remove
+        its record from the DB.
+
+        Returns True if the job existed anywhere (queue, active, or DB).
+        """
+        existing = self.db.get_job(url)
+
+        # Remove it from the queue if it's just sitting there "waiting"
+        was_queued = False
+        pending = []
+        while not self.queue.empty():
+            job = self.queue.get_nowait()
+            if job.url == url:
+                was_queued = True
+                continue
+            pending.append(job)
+        for job in pending:
+            self.queue.put_nowait(job)
+
+        # If it's currently being downloaded, flag it so the worker bails
+        # out at the next chapter boundary instead of finishing the job.
+        was_running = url in self.active_jobs
+        if was_running:
+            self.deleted_urls.add(url)
+            self.active_jobs.pop(url, None)
+
+        # Remove the DB record, if any
+        if existing:
+            await self.db.adelete(url)
+
+        return bool(existing or was_queued or was_running)
 
     async def start(self):
         """Mark the engine as running and kick off the worker pool in the
@@ -209,6 +247,14 @@ class Engine(QObject):
             except asyncio.QueueEmpty:
                 break
 
+            # Skip jobs that were deleted while still sitting in the queue
+            # (del_job already dropped them from self.queue, but this guards
+            # against any edge case where one slips through).
+            if job.url in self.deleted_urls:
+                self.deleted_urls.discard(job.url)
+                self.queue.task_done()
+                continue
+
             self.active_jobs[job.url] = job
             try:
                 await self.db.aupdate_status(job.url, "running")
@@ -234,7 +280,11 @@ class Engine(QObject):
                     job, data
                 )
 
-                if has_failed:
+                if has_failed == "deleted":
+                    # Job was removed by the user mid-download; its DB record
+                    # is already gone, so there's nothing left to update.
+                    logger.info(f"[{job.title}] Skipped finishing — job was deleted.")
+                elif has_failed:
                     await self.db.aupdate_status(job.url, "failed")
                     self.progress.emit(job.title, "Failed")
                     logger.warning(
@@ -279,6 +329,13 @@ class Engine(QObject):
         missing_details = {}  # chapter title -> list of missing image urls
 
         for chap_index, chap in enumerate(chapters, 1):
+            # The user deleted this job while it was mid-download: stop
+            # immediately, don't touch the DB again (record is already gone).
+            if job.url in self.deleted_urls:
+                self.deleted_urls.discard(job.url)
+                logger.info(f"[{job.title}] Job deleted by user, stopping download.")
+                return "deleted", False, {}
+
             if chap_index < start_index:
                 continue
 
@@ -334,7 +391,11 @@ class Engine(QObject):
 
         thumb_path = job.save_path
 
-        if (thumb_path / "thumb.jpg").exists():
+        # Đã có thumb với bất kỳ extension nào trong CONTENT_TYPE_EXT thì bỏ qua
+        if any(
+            (thumb_path / f"thumb{ext}").exists()
+            for ext in CONTENT_TYPE_EXT.values()
+        ):
             return
 
         referer = data.get("referer") or ""
@@ -348,9 +409,14 @@ class Engine(QObject):
             )
             return
 
-        raw_file = thumb_path / "0000.jpg"
-        if raw_file.exists():
-            raw_file.rename(thumb_path / "thumb.jpg")
+        # Tìm file vừa tải (0000.<ext thực tế>) và đổi tên thành thumb.<ext>
+        raw_files = list(thumb_path.glob("0000.*"))
+        if raw_files:
+            raw_file = raw_files[0]
+            ext = raw_file.suffix.lower()
+            if ext not in CONTENT_TYPE_EXT.values():
+                ext = ".jpg"  # fallback an toàn nếu extension lạ
+            raw_file.rename(thumb_path / f"thumb{ext}")
 
     async def _extract_images_with_retry(self, url, retries=2):
         last_err = None

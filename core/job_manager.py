@@ -191,6 +191,24 @@ class JobManager:
             )
             self.conn.commit()
 
+    def delete(self, url: str):
+        with self._lock:
+            self.conn.execute(
+                "DELETE FROM jobs WHERE url = ?",
+                (url,),
+            )
+            self.conn.commit()
+
+    def delete_bulk(self, urls: list[str]):
+        if not urls:
+            return
+        with self._lock:
+            self.conn.executemany(
+                "DELETE FROM jobs WHERE url = ?",
+                [(url,) for url in urls],
+            )
+            self.conn.commit()
+
     def all_jobs(self) -> list[Job]:
         with self._lock:
             rows = self.conn.execute("SELECT * FROM jobs").fetchall()
@@ -251,3 +269,7 @@ class JobManager:
     async def areset_current_chap(self, url: str):
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, self.reset_current_chap, url)
+
+    async def adelete(self, url: str):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self.delete, url)

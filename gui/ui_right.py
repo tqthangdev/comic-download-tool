@@ -7,7 +7,7 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QLabel,
 )
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import QSize, Qt
 
 from gui.queue_delegate import QueueDelegate
 from core.i18n import tr
@@ -90,6 +90,7 @@ class RightPanel(QWidget):
             return
 
         item = QListWidgetItem(job.title)
+        item.setSizeHint(QSize(0, 28))
 
         item.setData(
             Qt.ItemDataRole.UserRole,
