@@ -14,6 +14,7 @@ TRANSLATIONS = {
         "clear_done": "Xóa truyện tải xong",
         "queue": "Danh sách",
         "auto_queue": "Tự động thêm vào danh sách",
+        "shutdown_after_done": "Tắt máy khi xong",
         "language": "EN",
         "language_tooltip": "Chuyển sang tiếng Anh",
         "language_label": "Ngôn ngữ",
@@ -44,6 +45,12 @@ TRANSLATIONS = {
         "close_confirm_idle": "Bạn có chắc chắn muốn thoát ứng dụng không?",
         "yes": "Có",
         "no": "Không",
+        # Auto shutdown
+        "shutdown_confirm_title": "Xác nhận tắt máy",
+        "shutdown_confirm_text": "Tất cả truyện trong hàng đợi đã tải xong.",
+        "shutdown_countdown": "Máy sẽ tắt sau",
+        "shutdown_now": "Tắt ngay",
+        "shutdown_failed": "Không thể tắt máy tự động.",
         # Settings dialog
         "settings_title": "Cài đặt",
         "settings_help_title": "Chi tiết tùy chọn",
@@ -89,6 +96,7 @@ TRANSLATIONS = {
         "clear_done": "Clear Done",
         "queue": "Queue",
         "auto_queue": "Automatically add to queue",
+        "shutdown_after_done": "Shutdown when done",
         "language": "VI",
         "language_tooltip": "Switch to Vietnamese",
         "language_label": "Language",
@@ -119,6 +127,12 @@ TRANSLATIONS = {
         "close_confirm_idle": "Are you sure you want to exit?",
         "yes": "Yes",
         "no": "No",
+        # Auto shutdown
+        "shutdown_confirm_title": "Confirm shutdown",
+        "shutdown_confirm_text": "All queued downloads finished.",
+        "shutdown_countdown": "Shutting down in",
+        "shutdown_now": "Shut down now",
+        "shutdown_failed": "Auto shutdown failed.",
         # Settings dialog
         "settings_title": "Settings",
         "settings_help_title": "Option details",

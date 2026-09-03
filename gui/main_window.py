@@ -1,4 +1,6 @@
 import asyncio
+import platform
+import subprocess
 import sys
 from pathlib import Path
 import time
@@ -84,6 +86,8 @@ class MainWindow(QWidget):
         self.init_ui()
         self._closing = False
         self._loaded_data = None  # scraper result (title/thumb/referer/chapters) of the URL being previewed
+        self._shutdown_cancelled = False
+        self._shutdown_seconds_left = 0
         self._update_pause_button()
 
     # =========================
@@ -109,6 +113,7 @@ class MainWindow(QWidget):
         self.right.btn_pause.clicked.connect(self.toggle_pause_engine)
         self.engine.progress.connect(self.right.update_progress)
         self.engine.finished.connect(self._update_pause_button)
+        self.engine.finished.connect(self._on_engine_finished)
 
         self._apply_cursors()
         add_listener(self._retranslate)
@@ -611,6 +616,108 @@ class MainWindow(QWidget):
                 data["status"] = "Waiting"
                 item.setData(Qt.ItemDataRole.UserRole, data)
         self.right.queue_list.viewport().update()
+
+    # =========================
+    # AUTO SHUTDOWN
+    # =========================
+    def _queue_all_finished(self) -> bool:
+        """True nếu queue không rỗng và mọi job đã ở trạng thái cuối (không còn Waiting/Paused)."""
+        count = self.right.queue_list.count()
+        if count == 0:
+            return False
+
+        terminal = {"Done", "Failed", "Done with missing images", "Done with missing"}
+        for i in range(count):
+            item = self.right.queue_list.item(i)
+            data = item.data(Qt.ItemDataRole.UserRole) or {}
+            if data.get("status") not in terminal:
+                return False
+        return True
+
+    def _on_engine_finished(self):
+        if not self.left.shutdown_cb.isChecked():
+            return
+        if not self._queue_all_finished():
+            return
+        self._confirm_shutdown()
+
+    def _confirm_shutdown(self):
+        self._shutdown_cancelled = False
+        self._shutdown_seconds_left = 60
+
+        box = QMessageBox(self)
+        box.setWindowTitle(tr("shutdown_confirm_title"))
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setModal(False)
+
+        def _update_text():
+            box.setText(
+                f"{tr('shutdown_confirm_text')}\n\n"
+                f"{tr('shutdown_countdown')} {self._shutdown_seconds_left}s"
+            )
+
+        _update_text()
+
+        btn_cancel = box.addButton(tr("cancel"), QMessageBox.ButtonRole.RejectRole)
+        btn_now = box.addButton(tr("shutdown_now"), QMessageBox.ButtonRole.AcceptRole)
+        box.setDefaultButton(btn_cancel)
+
+        timer = QTimer(self)
+        timer.setInterval(1000)
+
+        def _tick():
+            self._shutdown_seconds_left -= 1
+            if self._shutdown_seconds_left <= 0:
+                timer.stop()
+                box.done(0)
+                if not self._shutdown_cancelled:
+                    self._shutdown_system()
+                return
+            _update_text()
+
+        timer.timeout.connect(_tick)
+        timer.start()
+
+        def _on_clicked(btn):
+            if btn is btn_cancel:
+                self._shutdown_cancelled = True
+                timer.stop()
+            elif btn is btn_now:
+                timer.stop()
+                box.done(0)
+                self._shutdown_system()
+
+        box.buttonClicked.connect(_on_clicked)
+        box.show()
+
+    def _shutdown_system(self):
+        system = platform.system()
+        logger.info(f"Auto-shutdown triggered on {system} after all downloads finished")
+
+        try:
+            if system == "Windows":
+                # /t 5: chờ 5s để process này thoát gọn; hủy bằng `shutdown /a`
+                subprocess.run(["shutdown", "/s", "/t", "5"], check=False)
+
+            elif system == "Linux":
+                try:
+                    # ưu tiên systemctl (thường không cần sudo với user trong active session + polkit)
+                    subprocess.run(["systemctl", "poweroff"], check=True)
+                except Exception:
+                    subprocess.run(["shutdown", "-h", "now"], check=False)
+
+            elif system == "Darwin":
+                subprocess.run(
+                    ["osascript", "-e", 'tell app "System Events" to shut down'],
+                    check=False
+                )
+
+            else:
+                logger.warning(f"Unsupported OS for auto-shutdown: {system}")
+
+        except Exception:
+            logger.exception("Failed to shut down the system")
+            self._show_message(tr("error"), tr("shutdown_failed"), critical=True)
 
     # =========================
     # CLOSE EVENT CONFIRMATION
