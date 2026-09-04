@@ -111,6 +111,7 @@ class MainWindow(QWidget):
         self.right.btn_start.clicked.connect(self.start_engine)
         self.right.btn_resume.clicked.connect(self.toggle_resume_engine)
         self.right.btn_pause.clicked.connect(self.toggle_pause_engine)
+        self.right.deleteRequested.connect(self.delete_job)
         self.engine.progress.connect(self.right.update_progress)
         self.engine.finished.connect(self._update_pause_button)
         self.engine.finished.connect(self._on_engine_finished)
@@ -618,6 +619,32 @@ class MainWindow(QWidget):
         self.right.queue_list.viewport().update()
 
     # =========================
+    # DELETE JOB (TRASH ICON)
+    # =========================
+    @asyncSlot(str)
+    async def delete_job(self, url: str):
+        """Xóa job hoàn toàn: khỏi queue/active, khỏi DB, khỏi queue list.
+
+        Được gọi từ nút thùng rác (RightPanel.deleteRequested).
+        """
+        try:
+            removed = await self.engine.del_job(url)
+
+            if removed:
+                self.right.remove_queue_item(url)
+                self._update_pause_button()
+            else:
+                # Job is no longer in the DB/queue -> just clean up any leftover UI item
+                self.right.remove_queue_item(url)
+        except Exception as e:
+            logger.error(f"Failed to delete job {url}: {e}", exc_info=True)
+            self._show_message(
+                tr("error"),
+                tr("delete_failed"),
+                critical=True
+            )
+
+    # =========================
     # AUTO SHUTDOWN
     # =========================
     def _queue_all_finished(self) -> bool:
@@ -696,12 +723,12 @@ class MainWindow(QWidget):
 
         try:
             if system == "Windows":
-                # /t 5: chờ 5s để process này thoát gọn; hủy bằng `shutdown /a`
+                # /t 5: wait 5s so this process exits cleanly; cancel with `shutdown /a`
                 subprocess.run(["shutdown", "/s", "/t", "5"], check=False)
 
             elif system == "Linux":
                 try:
-                    # ưu tiên systemctl (thường không cần sudo với user trong active session + polkit)
+                    # prefer systemctl (usually no sudo needed for a user in an active session + polkit)
                     subprocess.run(["systemctl", "poweroff"], check=True)
                 except Exception:
                     subprocess.run(["shutdown", "-h", "now"], check=False)

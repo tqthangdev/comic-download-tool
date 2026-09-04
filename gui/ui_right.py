@@ -7,7 +7,7 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QLabel,
 )
-from PyQt6.QtCore import QSize, Qt
+from PyQt6.QtCore import QSize, Qt, pyqtSignal
 
 from gui.queue_delegate import QueueDelegate
 from core.i18n import tr
@@ -19,6 +19,10 @@ class RightPanel(QWidget):
     - Start / Pause / Clear Done buttons (top)
     - Queue list (bottom)
     """
+
+    # Emitted when the user clicks the trash icon on a job in the queue list.
+    # MainWindow connects this signal to call engine.del_job(url).
+    deleteRequested = pyqtSignal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -54,7 +58,9 @@ class RightPanel(QWidget):
             padding-right: 5px;
         }
         """)
-        self.queue_list.setItemDelegate(QueueDelegate())
+        self._delegate = QueueDelegate()
+        self.queue_list.setItemDelegate(self._delegate)
+        self._delegate.deleteRequested.connect(self.deleteRequested)
         self.queue_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
         self.queue_label = QLabel(tr("queue"))
@@ -126,6 +132,16 @@ class RightPanel(QWidget):
                 data["status"] = status
                 item.setData(Qt.ItemDataRole.UserRole, data)
                 self.queue_list.viewport().update()
+                return
+
+    def remove_queue_item(self, url):
+        """Remove the item with the given url from the queue list, if present."""
+        for i in range(self.queue_list.count()):
+            item = self.queue_list.item(i)
+            data = item.data(Qt.ItemDataRole.UserRole)
+
+            if data and data.get("url") == url:
+                self.queue_list.takeItem(i)
                 return
 
     def clear_done(self):

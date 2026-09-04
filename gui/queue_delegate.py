@@ -4,8 +4,8 @@ from PyQt6.QtCore import Qt, QRect, QEvent, pyqtSignal
 
 
 class QueueDelegate(QStyledItemDelegate):
-    # Phát ra url của job khi người dùng bấm icon thùng rác,
-    # để nơi khác (MainWindow) gọi engine.del_job(url) thật sự.
+    # Emits the job url when the user clicks the trash icon,
+    # so somewhere else (MainWindow) can actually call engine.del_job(url).
     deleteRequested = pyqtSignal(str)
 
     # max/min width reserved for the status area on the right
@@ -164,9 +164,11 @@ class QueueDelegate(QStyledItemDelegate):
                     job_url = data.get("url") if data else None
 
                     if job_url:
+                        # Do not removeRow here: MainWindow listens for
+                        # deleteRequested, calls engine.del_job(url) and only
+                        # then removes the item from the queue list once the
+                        # DB record is gone.
                         self.deleteRequested.emit(job_url)
-
-                    model.removeRow(index.row())
                     return True
 
         return super().editorEvent(event, model, option, index)
