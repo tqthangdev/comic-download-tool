@@ -10,6 +10,7 @@ from core.job_manager import Job, JobManager
 from core.logger import logger
 from core.scraper import get_referer
 from core.utils import CONFIG, safe_filename
+from core.auth import auth_manager, AuthError
 
 
 class Engine(QObject):
@@ -18,6 +19,12 @@ class Engine(QObject):
     # finishes naturally, or a job crashes) so the UI can resync the
     # pause/resume buttons without waiting for a manual pause/resume click.
     finished = pyqtSignal()
+    # Emitted when a job is paused because its site requires login and the
+    # user isn't (or is no longer) authenticated. Args: (job_title, job_url, site_id).
+    # The GUI should catch this and open gui/login_dialog.py's LoginDialog
+    # for site_id, then re-add the job by url (its status is already "paused",
+    # so add_job() will simply resume it).
+    login_required = pyqtSignal(str, str, str)
 
     def __init__(self, max_workers=3):
         super().__init__()
@@ -58,6 +65,12 @@ class Engine(QObject):
                 await self.db.aupdate_thumb(job.url, job.thumb)
             elif existing.thumb and not job.thumb:
                 job.thumb = existing.thumb
+            # Keep the site_id already on record unless the GUI explicitly
+            # supplied a new one (e.g. user re-added the job picking a site).
+            if not existing.site_id and job.site_id:
+                self.db.update_site_id(job.url, job.site_id)
+            elif existing.site_id and not job.site_id:
+                job.site_id = existing.site_id
         else:
             status = None
 
@@ -255,6 +268,22 @@ class Engine(QObject):
                 self.queue.task_done()
                 continue
 
+            # Site requires login and we're not (or no longer) authenticated:
+            # pause the job instead of letting it fail deep inside crawl/download,
+            # and let the GUI prompt the user to log in.
+            if job.site_id:
+                try:
+                    auth_manager.ensure_logged_in(job.site_id)
+                except AuthError:
+                    await self.db.aupdate_status(job.url, "paused")
+                    self.progress.emit(job.title, "Login required")
+                    self.login_required.emit(job.title, job.url, job.site_id)
+                    logger.warning(
+                        f"[{job.title}] Paused — not logged in to site '{job.site_id}'."
+                    )
+                    self.queue.task_done()
+                    continue
+
             self.active_jobs[job.url] = job
             try:
                 await self.db.aupdate_status(job.url, "running")
@@ -300,6 +329,14 @@ class Engine(QObject):
             except asyncio.CancelledError:
                 raise
 
+            except AuthError as e:
+                # Session expired mid-run (e.g. cookie invalidated by the site).
+                # Pause and ask the GUI to re-authenticate, same as the pre-check above.
+                await self.db.aupdate_status(job.url, "paused")
+                self.progress.emit(job.title, "Login required")
+                self.login_required.emit(job.title, job.url, job.site_id or "")
+                logger.warning(f"[{job.title}] Session expired mid-run: {e}")
+
             except Exception as e:
                 logger.error(
                     f"ERROR processing job [{job.title}]: {e}", exc_info=True
@@ -315,7 +352,7 @@ class Engine(QObject):
         return job.save_path.exists() and any(job.save_path.iterdir())
 
     async def crawl_job(self, job):
-        return await self.crawler.get_chapters(job.url)
+        return await self.crawler.get_chapters(job.url, site_id=job.site_id)
 
     async def download_job(self, job, data):
         await self._download_thumb(job, data)
@@ -342,7 +379,9 @@ class Engine(QObject):
             job.current_chap = chap_index
             await self.db.aupdate_current_chap(job.url, chap_index)
 
-            imgs = await self._extract_images_with_retry(chap["url"])
+            imgs = await self._extract_images_with_retry(
+                chap["url"], site_id=job.site_id
+            )
             chap_path = job.save_path / safe_filename(chap["title"])
 
             if self.verify_chapter(chap_path, len(imgs)):
@@ -363,7 +402,8 @@ class Engine(QObject):
                 )
 
             failed_urls, missing_urls = await self.downloader.download_batch(
-                imgs, chap_path, referer=referer, progress=progress_callback
+                imgs, chap_path, referer=referer, progress=progress_callback,
+                site_id=job.site_id,
             )
 
             if failed_urls:
@@ -400,7 +440,7 @@ class Engine(QObject):
 
         referer = data.get("referer") or ""
         failed_urls, _missing = await self.downloader.download_batch(
-            [thumb_url], thumb_path, referer=referer
+            [thumb_url], thumb_path, referer=referer, site_id=job.site_id,
         )
 
         if failed_urls:
@@ -418,11 +458,11 @@ class Engine(QObject):
                 ext = ".jpg"  # fallback an toàn nếu extension lạ
             raw_file.rename(thumb_path / f"thumb{ext}")
 
-    async def _extract_images_with_retry(self, url, retries=2):
+    async def _extract_images_with_retry(self, url, retries=2, site_id=None):
         last_err = None
         for attempt in range(retries + 1):
             try:
-                return await self.crawler.extract_images(url)
+                return await self.crawler.extract_images(url, site_id=site_id)
             except asyncio.CancelledError:
                 raise
             except Exception as e:

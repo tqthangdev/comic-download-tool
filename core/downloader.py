@@ -1,12 +1,13 @@
 import asyncio
 from pathlib import Path
+from typing import Optional
 
 import aiohttp
 
 from core.logger import logger
 from core.scraper import get_referer
 from core.utils import CONFIG
-
+from core.auth import auth_manager
 
 CONTENT_TYPE_EXT = {
     "image/jpeg": ".jpg",
@@ -36,9 +37,7 @@ def guess_ext(url: str, content_type: str = None) -> str:
 class Downloader:
     def __init__(self, max_concurrent_downloads=None):
         self.session = None
-        max_concurrent = (
-            max_concurrent_downloads or CONFIG["max_concurrent_downloads"]
-        )
+        max_concurrent = max_concurrent_downloads or CONFIG["max_concurrent_downloads"]
         self._semaphore = asyncio.Semaphore(max_concurrent)
 
     def set_session(self, session):
@@ -48,6 +47,23 @@ class Downloader:
     OK = "ok"
     MISSING = "missing"
     FAILED = "failed"
+
+    @staticmethod
+    def _ssl_for_site(site_id: Optional[str]):
+        """
+        Return SSL configuration for a site.
+
+        Sites with a self-signed/untrusted certificate need verification
+        disabled (configured via verify_ssl=false in sites_config.json).
+        """
+        if not site_id:
+            return None
+        try:
+            handler = auth_manager._handler_for(site_id)
+        except KeyError:
+            return None
+        verify_ssl = getattr(handler, "verify_ssl", True)
+        return None if verify_ssl else False
 
     async def _write_file_async(self, path: Path, data: bytes):
         """Write files without blocking the Event Loop by using traditional binary file I/O."""
@@ -59,7 +75,16 @@ class Downloader:
 
         await loop.run_in_executor(None, _write)
 
-    async def _download(self, url, stem_path: Path, referer=None, retry=None):
+    async def _download(
+        self,
+        url,
+        stem_path: Path,
+        referer=None,
+        retry=None,
+        cookies: Optional[dict] = None,
+        extra_headers: Optional[dict] = None,
+        site_id: Optional[str] = None,
+    ):
         """Download an image to stem_path with the correct extension.
         stem_path should NOT include an extension (e.g. save_path / "0001").
         Returns (status, ext) where ext is None if not OK.
@@ -75,20 +100,29 @@ class Downloader:
         }
         if referer:
             headers["Referer"] = referer
+        if extra_headers:
+            headers.update(extra_headers)
 
+        ssl_config = self._ssl_for_site(site_id)
         last_error = None
 
         for attempt in range(retry):
             try:
                 # Wrap the Semaphore ONLY around the HTTP request & data retrieval
                 # Releases the Semaphore immediately when the network operation completes (avoids holding a slot while sleeping during retries)
+                request_kwargs = {
+                    "headers": headers,
+                    "cookies": cookies,
+                    "timeout": aiohttp.ClientTimeout(total=CONFIG["request_timeout"]),
+                }
+                # Only override SSL verification for sites that require it.
+                if ssl_config is not None:
+                    request_kwargs["ssl"] = ssl_config
+
                 async with self._semaphore:
                     async with self.session.get(
                         url,
-                        headers=headers,
-                        timeout=aiohttp.ClientTimeout(
-                            total=CONFIG["request_timeout"]
-                        ),
+                        **request_kwargs,
                     ) as r:
 
                         if r.status == 200:
@@ -107,6 +141,9 @@ class Downloader:
                             return self.MISSING, None
 
                         last_error = f"HTTP {r.status}"
+
+            except asyncio.CancelledError:
+                raise
 
             except Exception as e:
                 last_error = f"{type(e).__name__}: {e}"
@@ -131,9 +168,17 @@ class Downloader:
         return self.FAILED, None
 
     async def download_batch(
-        self, urls, save_path: Path, referer: str = None, progress=None
+        self,
+        urls,
+        save_path: Path,
+        referer: str = None,
+        progress=None,
+        site_id: Optional[str] = None,
     ):
         save_path.mkdir(parents=True, exist_ok=True)
+
+        cookies = auth_manager.get_cookies(site_id) if site_id else None
+        extra_headers = auth_manager.get_headers(site_id) if site_id else None
 
         total = len(urls)
         finished = 0
@@ -146,7 +191,14 @@ class Downloader:
         async def task(index, url):
             nonlocal finished
             stem_path = save_path / f"{index:04d}"  # no extension yet
-            result, _ext = await self._download(url, stem_path, referer)
+            result, _ext = await self._download(
+                url,
+                stem_path,
+                referer,
+                cookies=cookies,
+                extra_headers=extra_headers,
+                site_id=site_id,
+            )
 
             async with lock:
                 if result == self.MISSING:

@@ -48,6 +48,7 @@ data/*.sqlite3
 
 # data json
 data/*.json
+data/*/*.json
 
 # Logs
 
@@ -147,3 +148,8 @@ $RECYCLE.BIN/
 *.swo
 *.orig
 *.html
+*.csv
+
+# ==============================
+feedback.md
+rules.md

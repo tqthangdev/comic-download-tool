@@ -15,8 +15,10 @@ from PyQt6.QtCore import QSettings, QTimer, Qt
 from gui.ui_left import LeftPanel
 from gui.ui_right import RightPanel
 from gui.restore_dialog import RestoreDialog
+from gui.login_dialog import prompt_login
 from core.logger import logger
 from core.i18n import tr, add_listener
+from core.auth import auth_manager
 
 
 class MainWindow(QWidget):
@@ -86,6 +88,7 @@ class MainWindow(QWidget):
         self.init_ui()
         self._closing = False
         self._loaded_data = None  # scraper result (title/thumb/referer/chapters) of the URL being previewed
+        self._loaded_site_id = None  # site_id (core/auth) the previewed URL belongs to, or None if public
         self._shutdown_cancelled = False
         self._shutdown_seconds_left = 0
         self._update_pause_button()
@@ -115,6 +118,7 @@ class MainWindow(QWidget):
         self.engine.progress.connect(self.right.update_progress)
         self.engine.finished.connect(self._update_pause_button)
         self.engine.finished.connect(self._on_engine_finished)
+        self.engine.login_required.connect(self.on_login_required)
 
         self._apply_cursors()
         add_listener(self._retranslate)
@@ -244,10 +248,22 @@ class MainWindow(QWidget):
         if not url or url == "":
             return
 
+        # Auto-detect whether this URL belongs to a site that requires login
+        # (see core/auth). If it does and we're not authenticated yet, ask
+        # for credentials *before* crawling, so the first request already
+        # carries a valid session instead of failing/returning locked content.
+        site_id = auth_manager.site_id_for_url(url)
+        self._loaded_site_id = site_id
+
+        if site_id and not auth_manager.is_logged_in(site_id):
+            if not prompt_login(self, default_site=site_id):
+                # User cancelled the login prompt — abort loading this URL.
+                return
+
         self.left.on_loading(True)
 
         try:
-            data = await self.engine.crawler.get_chapters(url)
+            data = await self.engine.crawler.get_chapters(url, site_id=site_id)
             self._loaded_data = data
 
             title = data.get("title", "")
@@ -268,7 +284,12 @@ class MainWindow(QWidget):
                     "User-Agent": CONFIG["user_agent"],
                     "Referer": data.get("referer") or "",
                 }
-                resp = await asyncio.to_thread(requests.get, thumb, headers=headers, timeout=5)
+                cookies = auth_manager.get_cookies(site_id) if site_id else None
+                if site_id:
+                    headers.update(auth_manager.get_headers(site_id))
+                resp = await asyncio.to_thread(
+                    requests.get, thumb, headers=headers, cookies=cookies, timeout=5
+                )
                 img = resp.content
 
                 pixmap = QPixmap()
@@ -352,6 +373,10 @@ class MainWindow(QWidget):
             )
 
             loaded = self._loaded_data or {}
+            # Use the site_id detected when this URL was previewed (on_load_chapters).
+            # Falls back to a fresh detection in case add_queue is ever called
+            # for a url that wasn't previewed through the normal flow.
+            site_id = self._loaded_site_id or auth_manager.site_id_for_url(url)
             job = Job(
                 url=url,
                 title=title,
@@ -359,6 +384,7 @@ class MainWindow(QWidget):
                 chapters=loaded.get("chapters") or None,
                 referer=loaded.get("referer"),
                 thumb=loaded.get("thumb") or None,
+                site_id=site_id,
             )
 
             # FIX: no longer guess "already_queued" from the UI list; let
@@ -403,6 +429,27 @@ class MainWindow(QWidget):
                 str(e),
                 critical=True
             )
+
+    # =========================
+    # LOGIN REQUIRED (from Engine, mid-queue)
+    # =========================
+    def on_login_required(self, job_title: str, url: str, site_id: str):
+        """A queued/running job was paused because its site needs login
+        (see Engine.login_required). Ask the user to sign in, then resume
+        the job automatically if they do.
+        """
+        self._show_message(
+            tr("notify"),
+            f"'{job_title}' {tr('login_required_message').format(site_id)}."
+        )
+
+        if not site_id or not prompt_login(self, default_site=site_id):
+            return  # user cancelled — job stays "paused" in the DB, can resume later
+
+        job = self.engine.db.get_job(url)
+        if job:
+            asyncio.ensure_future(self.engine.add_job(job))
+            self._update_pause_button()
 
     # =========================
     # NON-MODAL MESSAGE BOX

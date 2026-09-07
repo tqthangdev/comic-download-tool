@@ -1,0 +1,14 @@
+{
+  "_comment": "Sample file. Declare sites requiring login here instead of writing a .py file per site. Each key is a site_id and AuthManager loads this file on auto_register(). Common fields: domains, login_url, check_url, username_field, password_field, extra_form (dict sent along), csrf (bool, true auto-detects input _token/_csrf...), verify_ssl (bool, default true), type (form|json|basic, default form). If a site needs special logic, still create a .py file under core/auth/sites/ (it takes precedence over config).",
+
+  "example": {
+    "type": "form",
+    "domains": ["example.com"],
+    "login_url": "https://example.com/login",
+    "check_url": "https://example.com/profile",
+    "username_field": "username",
+    "password_field": "password",
+    "csrf": true,
+    "verify_ssl": true
+  }
+}

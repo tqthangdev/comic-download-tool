@@ -35,6 +35,7 @@ If no release is available, you can build it yourself — see [Build](#build), o
 * Cross-platform desktop GUI
 * Centralized logging
 * Configurable worker and download limits
+* Login support for sites that require authentication (config-driven)
 
 ## Architecture
 
@@ -48,16 +49,23 @@ Comic Download Tool
 │   ├── job_manager.py      # Job queue and persistence
 │   ├── logger.py           # Logging
 │   ├── scraper.py          # Metadata + chapter-list + image heuristics
-│   └── utils.py            # Shared utilities
+│   ├── utils.py            # Shared utilities
+│   └── auth/               # Login support (config-driven)
+│       ├── base.py             # AuthHandler interface + AuthError/AuthResult
+│       ├── manager.py          # AuthManager (register/login/session cache)
+│       ├── config_sites.py     # ConfigSiteAuth driven by sites_config.json
+│       ├── session_store.py    # Persist/restore session cookies
+│       └── sites_config.json   # Declare login-required sites
 │
 ├── gui/
 │   ├── main_window.py      # Main application window
+│   ├── login_dialog.py     # Login dialog for authenticated sites
 │   ├── queue_delegate.py   # Queue UI delegate
 │   ├── ui_left.py          # Left-side UI
 │   └── ui_right.py         # Right-side UI
 │
 ├── assets/                 # Icons and UI images
-├── data/                   # App data next to the app (config.json, jobs.db)
+├── data/                   # App data next to the app (config.json, jobs.db, sessions/)
 ├── logs/error.log          # Application error log
 ├── requirements.txt        # Python dependencies
 ├── run.py                  # Application entry point
@@ -149,6 +157,47 @@ Settings are stored in `config.json`, created automatically inside `data/` right
 | `language` | UI language (`vi` or `en`) |
 | `user_agent` | Custom HTTP User-Agent |
 
+## Login / Authentication
+
+Some sites require a login to read or download content (locked/premium chapters). The app detects this via the URL's domain, prompts for credentials, and uses the authenticated session for crawling and image downloads.
+
+### Declaring a login-required site
+
+Sites are declared in `core/auth/sites_config.json`. Each key is a `site_id`, and `AuthManager` auto-registers all entries on startup:
+
+```json
+{
+  "damconuong": {
+    "type": "form",
+    "domains": ["damconuong.uno"],
+    "login_url": "https://damconuong.uno/login",
+    "check_url": "https://damconuong.uno/my/profile",
+    "username_field": "email",
+    "password_field": "password",
+    "csrf": true,
+    "verify_ssl": false
+  }
+}
+```
+
+| Field | Description |
+| :--- | :--- |
+| `type` | Login flow: `form` (URL-encoded POST), `json` (JSON POST, token from response), or `basic` (HTTP Basic). Default `form`. |
+| `domains` | Domain(s) used to auto-detect which site a pasted URL belongs to. |
+| `login_url` | Endpoint that receives the credentials. |
+| `check_url` | URL whose response status tells whether the session is still logged in (default expects `200`). |
+| `username_field` / `password_field` | Names of the credential form/JSON fields. |
+| `extra_form` | Optional extra fields sent with the login request; `{username}` is replaced with the typed username. |
+| `csrf` | When `true`, the login page is fetched first and a CSRF token (`_token`/`_csrf`/...) is submitted alongside the credentials. |
+| `verify_ssl` | Set `false` for sites with a self-signed/untrusted certificate. |
+
+### How it works
+
+1. When a URL is pasted, the app looks up the URL's host against every registered site's `domains`.
+2. If the site needs login and no valid session exists, a login dialog (`gui/login_dialog.py`) asks for the account credentials.
+3. On success, the authenticated session's cookies/headers are reused for chapter crawling and image downloads (requests, aiohttp, and Playwright).
+4. Sessions are persisted to `data/sessions/<site_id>.json`, so you don't have to log in again on the next launch. If a session expires mid-download, the affected job is paused and the login dialog is re-shown.
+
 ## Build
 
 ### Linux / macOS
@@ -192,6 +241,7 @@ The app stores its data next to where it is run, so running a build from any fol
 
 * **`data/config.json`** — application configuration (auto-created).
 * **`data/jobs.db`** — SQLite database storing queued/processed jobs across restarts.
+* **`data/sessions/`** — saved authenticated sessions (one JSON file per site) so logins persist across runs.
 * **`logs/error.log`** — detailed info for failed downloads or scraper errors.
 
 ## Development Workflow

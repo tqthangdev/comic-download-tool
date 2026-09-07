@@ -83,6 +83,21 @@ TRANSLATIONS = {
         "status_done": "Done",
         "status_failed": "Failed",
         "status_done_with_missing": "Done with missing",
+        # Auth / login
+        "auth_missing_login_url": "thiếu login_url",
+        "auth_login_failed": "Đăng nhập '{}' thất bại",
+        "auth_login_failed_user": "Đăng nhập '{}' thất bại cho user '{}'",
+        "auth_login_failed_status": "Đăng nhập '{}' thất bại (HTTP {})",
+        "auth_login_no_token": "Đăng nhập '{}' thất bại: không nhận được token",
+        "auth_config_error": "[auth] Lỗi cấu hình site '{}': {}",
+        "login_title": "Đăng nhập",
+        "login_site": "Trang:",
+        "login_username": "Tài khoản:",
+        "login_password": "Mật khẩu:",
+        "login_required_fields": "Vui lòng nhập đầy đủ tài khoản và mật khẩu.",
+        "login_failed_title": "Đăng nhập thất bại",
+        "login_required_message": "cần đăng nhập vào {} để tiếp tục",
+        "login_need_auth": "Cần đăng nhập",
     },
     "en": {
         # Common
@@ -166,6 +181,21 @@ TRANSLATIONS = {
         "status_done": "Done",
         "status_failed": "Failed",
         "status_done_with_missing": "Done with missing",
+        # Auth / login
+        "auth_missing_login_url": "missing login_url",
+        "auth_login_failed": "Login '{}' failed",
+        "auth_login_failed_user": "Login '{}' failed for user '{}'",
+        "auth_login_failed_status": "Login '{}' failed (HTTP {})",
+        "auth_login_no_token": "Login '{}' failed: no token received",
+        "auth_config_error": "[auth] Config error for site '{}': {}",
+        "login_title": "Login",
+        "login_site": "Site:",
+        "login_username": "Username:",
+        "login_password": "Password:",
+        "login_required_fields": "Please enter both username and password.",
+        "login_failed_title": "Login failed",
+        "login_required_message": "needs login to {} to continue",
+        "login_need_auth": "Login required",
     },
 }
 

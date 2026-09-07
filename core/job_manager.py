@@ -19,6 +19,7 @@ class Job:
     chapters: list = field(default=None)  # [{title, url, update_time}] from scraper.py
     referer: str = field(default=None)    # referer derived from scraper (origin URL)
     thumb: str = field(default=None)      # cover image URL from scraper.py
+    site_id: str = field(default=None)    # registered site id in core/auth (None = public, no login needed)
 
 
 class JobManager:
@@ -47,7 +48,9 @@ class JobManager:
                     status        TEXT DEFAULT 'waiting',
                     current_chap  INTEGER,
                     chapters      TEXT,
-                    thumb         TEXT
+                    thumb         TEXT,
+                    referer       TEXT,
+                    site_id       TEXT
                 )
             """)
             self.conn.commit()
@@ -78,6 +81,11 @@ class JobManager:
                     "ALTER TABLE jobs ADD COLUMN referer TEXT"
                 )
                 self.conn.commit()
+            if "site_id" not in cols:
+                self.conn.execute(
+                    "ALTER TABLE jobs ADD COLUMN site_id TEXT"
+                )
+                self.conn.commit()
 
     # ------------------------------------------------------------------
     # CRUD (synchronous - kept for internal use / startup, not the hot path)
@@ -106,11 +114,11 @@ class JobManager:
         with self._lock:
             self.conn.execute(
                 """
-                INSERT OR IGNORE INTO jobs (url, title, save_path, status, current_chap, chapters, thumb, referer)
-                VALUES (?, ?, ?, 'waiting', NULL, ?, ?, ?)
+                INSERT OR IGNORE INTO jobs (url, title, save_path, status, current_chap, chapters, thumb, referer, site_id)
+                VALUES (?, ?, ?, 'waiting', NULL, ?, ?, ?, ?)
                 """,
                 (job.url, job.title, str(job.save_path),
-                 self._chapters_to_json(job.chapters), job.thumb, job.referer),
+                 self._chapters_to_json(job.chapters), job.thumb, job.referer, job.site_id),
             )
             self.conn.commit()
 
@@ -130,6 +138,7 @@ class JobManager:
             chapters=self._chapters_from_json(row["chapters"]),
             thumb=row["thumb"],
             referer=row["referer"],
+            site_id=row["site_id"],
         )
 
     def update_status(self, url: str, status: str):
@@ -156,6 +165,14 @@ class JobManager:
             self.conn.execute(
                 "UPDATE jobs SET save_path = ? WHERE url = ?",
                 (str(save_path), url),
+            )
+            self.conn.commit()
+
+    def update_site_id(self, url: str, site_id: str):
+        with self._lock:
+            self.conn.execute(
+                "UPDATE jobs SET site_id = ? WHERE url = ?",
+                (site_id, url),
             )
             self.conn.commit()
 
@@ -221,6 +238,8 @@ class JobManager:
                 status=r["status"],
                 chapters=self._chapters_from_json(r["chapters"]),
                 thumb=r["thumb"],
+                referer=r["referer"],
+                site_id=r["site_id"],
             )
             for r in rows
         ]
@@ -241,6 +260,8 @@ class JobManager:
                 status=r["status"],
                 chapters=self._chapters_from_json(r["chapters"]),
                 thumb=r["thumb"],
+                referer=r["referer"],
+                site_id=r["site_id"],
             )
             for r in rows
         ]
@@ -265,6 +286,10 @@ class JobManager:
     async def aupdate_thumb(self, url: str, thumb: str):
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, self.update_thumb, url, thumb)
+
+    async def aupdate_site_id(self, url: str, site_id: str):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self.update_site_id, url, site_id)
 
     async def areset_current_chap(self, url: str):
         loop = asyncio.get_running_loop()

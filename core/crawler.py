@@ -1,9 +1,12 @@
 import asyncio
-from typing import List
+from functools import partial
+from typing import List, Optional
+from urllib.parse import urlparse
 
 from core.scraper import scrape, scrape_from_html, find_chapter_images
 from core.utils import resolve_ddg_proxy, CONFIG
 from core.logger import logger
+from core.auth import auth_manager
 
 # Placeholder URLs (unrendered / lazy images) — not real content
 PLACEHOLDER_PARTS = ("transparent", "placeholder", "loading", "spacer", "/assets/img/")
@@ -34,15 +37,34 @@ class Crawler:
         """Called by Engine to reuse a shared aiohttp session (avoids recreating one)."""
         self._http_session = session
 
-    async def _render_html(self, url: str) -> str:
-        """Render a URL with Playwright headless, returning the JS-executed HTML."""
+    async def _render_html(self, url: str, site_id: Optional[str] = None) -> str:
+        """Render a URL with Playwright headless, returning the JS-executed HTML.
+
+        If site_id is given, the authenticated cookies/headers from
+        auth_manager are applied to the browser context before navigating,
+        so JS-rendered pages that require login work too.
+        """
         from playwright.async_api import async_playwright
 
         if self._pw is None:
             self._pw = await async_playwright().start()
         browser = await self._pw.chromium.launch(headless=True)
         try:
-            page = await browser.new_page()
+            context = await browser.new_context()
+
+            if site_id:
+                cookies = auth_manager.get_cookies(site_id)
+                if cookies:
+                    domain = urlparse(url).netloc
+                    await context.add_cookies([
+                        {"name": name, "value": value, "domain": domain, "path": "/"}
+                        for name, value in cookies.items()
+                    ])
+                headers = auth_manager.get_headers(site_id)
+                if headers:
+                    await context.set_extra_http_headers(headers)
+
+            page = await context.new_page()
             await page.goto(url, wait_until="networkidle", timeout=CONFIG["request_timeout"] * 1000)
             await page.wait_for_timeout(1500)
             html = await page.content()
@@ -51,11 +73,15 @@ class Crawler:
         finally:
             await browser.close()
 
-    async def get_chapters(self, url: str, retries: int = None):
+    async def get_chapters(self, url: str, retries: int = None, site_id: Optional[str] = None):
         """Fetch title/thumb/referer/chapters via scraper.py (requests).
 
         If requests finds no chapters (JS-rendered page), fall back to
         Playwright headless rendering and scrape again on the rendered HTML.
+
+        site_id: pass through to both the requests-based scrape() call and
+        the Playwright fallback so login cookies/headers are applied either
+        way — the site is seen as logged-in whether or not it needs JS.
 
         Runs in an executor because the scraper is synchronous (requests +
         BeautifulSoup), so it does not block the event loop (qasync shares the
@@ -65,13 +91,17 @@ class Crawler:
         loop = asyncio.get_running_loop()
         last_error = None
 
+        cookies = auth_manager.get_cookies(site_id) if site_id else None
+        extra_headers = auth_manager.get_headers(site_id) if site_id else None
+        scrape_call = partial(scrape, url, cookies=cookies, extra_headers=extra_headers)
+
         for attempt in range(retries + 1):
             try:
-                data = await loop.run_in_executor(None, scrape, url)
+                data = await loop.run_in_executor(None, scrape_call)
                 if data.get("chapters"):
                     return data
                 # JS-rendered site: retry with Playwright
-                html = await self._render_html(url)
+                html = await self._render_html(url, site_id=site_id)
                 rendered = await loop.run_in_executor(None, scrape_from_html, html, url)
                 if rendered.get("chapters"):
                     rendered.setdefault("referer", data.get("referer") or "")
@@ -84,11 +114,16 @@ class Crawler:
                     await asyncio.sleep(0.5)
         raise last_error
 
-    async def extract_images(self, url: str) -> List[str]:
+    async def extract_images(self, url: str, site_id: Optional[str] = None) -> List[str]:
         if self._http_session is None:
             raise RuntimeError("HTTP session not set. Call crawler.set_http_session(session) first.")
 
-        async with self._http_session.get(url, timeout=CONFIG["request_timeout"]) as resp:
+        cookies = auth_manager.get_cookies(site_id) if site_id else None
+        headers = auth_manager.get_headers(site_id) if site_id else None
+
+        async with self._http_session.get(
+            url, timeout=CONFIG["request_timeout"], cookies=cookies, headers=headers
+        ) as resp:
             html = await resp.text()
 
         loop = asyncio.get_running_loop()
@@ -100,7 +135,7 @@ class Crawler:
         # rendering and re-extract.
         if not _has_real_images(urls):
             try:
-                rendered_html = await self._render_html(url)
+                rendered_html = await self._render_html(url, site_id=site_id)
                 rendered = await loop.run_in_executor(
                     None, find_chapter_images, rendered_html, url
                 )

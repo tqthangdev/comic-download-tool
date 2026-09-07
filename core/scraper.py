@@ -61,12 +61,19 @@ def get_referer(url: str) -> str:
     return f"{parsed.scheme}://{parsed.netloc}"
 
 
-def fetch_soup(url: str, timeout: int = 15) -> BeautifulSoup:
+def fetch_soup(
+    url: str,
+    timeout: int = 15,
+    cookies: dict = None,
+    extra_headers: dict = None,
+) -> BeautifulSoup:
     headers = dict(HEADERS)
     referer = get_referer(url)
     if referer:
         headers["Referer"] = referer
-    resp = requests.get(url, headers=headers, timeout=timeout)
+    if extra_headers:
+        headers.update(extra_headers)
+    resp = requests.get(url, headers=headers, cookies=cookies, timeout=timeout)
     resp.raise_for_status()
     resp.encoding = resp.apparent_encoding or resp.encoding
     return BeautifulSoup(resp.text, "lxml")
@@ -527,8 +534,15 @@ def scrape_from_html(html: str, url: str, debug: bool = False) -> dict:
     return _extract_from_soup(soup, url, debug)
 
 
-def scrape(url: str, debug: bool = False) -> dict:
-    return _extract_from_soup(fetch_soup(url), url, debug)
+def scrape(
+    url: str,
+    debug: bool = False,
+    cookies: dict = None,
+    extra_headers: dict = None,
+) -> dict:
+    return _extract_from_soup(
+        fetch_soup(url, cookies=cookies, extra_headers=extra_headers), url, debug
+    )
 
 
 # ----------------------------------------------------------------------
