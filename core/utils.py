@@ -6,13 +6,24 @@ from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
 
-def safe_filename(name: str, max_length=200):
+# Linux limits each path component to 255 bytes (NAME_MAX) — Windows to 255
+# UTF-16 code units. Multibyte UTF-8 characters (Vietnamese, CJK, emoji) can
+# blow past that even at well under 255 *characters*, so keep a safe margin
+# and truncate by bytes, never splitting a character in the middle.
+MAX_FILENAME_BYTES = 255
+
+
+def safe_filename(name: str, max_length: int = MAX_FILENAME_BYTES):
     # 1. Strip characters forbidden by the OS
     name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "", name)
 
-    # 2. Truncate long names
-    if len(name) > max_length:
-        name = name[:max_length]
+    # 2. Truncate long names — by *bytes* so multibyte UTF-8 (Vietnamese, CJK,
+    #    emoji) can't exceed the filesystem's per-component byte limit.
+    encoded = name.encode("utf-8", errors="ignore")
+    if len(encoded) > max_length:
+        # Cut at the byte boundary, then trim any trailing partial character.
+        encoded = encoded[:max_length]
+        name = encoded.decode("utf-8", errors="ignore")
 
     # 3. Strip trailing dots and spaces
     name = name.rstrip(" .")

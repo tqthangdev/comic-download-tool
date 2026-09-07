@@ -40,9 +40,19 @@ CSRF_SELECTORS = (
 
 def load_sites_config() -> dict:
     """Read the contents of sites_config.json. Returns {} if missing/corrupt."""
+    from core.logger import logger
+
+    if not CONFIG_PATH.exists():
+        logger.warning(
+            f"[auth] {CONFIG_PATH.name} not found — no config-driven sites "
+            "registered. Add it next to this module to enable login for sites "
+            "that require authentication."
+        )
+        return {}
     try:
         data = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    except (OSError, json.JSONDecodeError) as e:
+        logger.error(f"[auth] Failed to read {CONFIG_PATH.name}: {e}")
         return {}
     # Skip keys starting with "_" (like "_comment").
     return {k: v for k, v in data.items() if isinstance(v, dict) and not k.startswith("_")}

@@ -39,6 +39,9 @@ htmlcov/
 
 # ==============================
 
+# Login site config (may contain credentials) — kept local, not tracked
+core/auth/sites_config.json
+
 # SQLite database
 
 data/*.db
