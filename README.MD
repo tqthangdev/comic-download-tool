@@ -167,11 +167,11 @@ Sites are declared in `core/auth/sites_config.json`. Each key is a `site_id`, an
 
 ```json
 {
-  "damconuong": {
+  "example_site": {
     "type": "form",
-    "domains": ["damconuong.uno"],
-    "login_url": "https://damconuong.uno/login",
-    "check_url": "https://damconuong.uno/my/profile",
+    "domains": ["example.com"],
+    "login_url": "https://example.com/login",
+    "check_url": "https://example.com/my/profile",
     "username_field": "email",
     "password_field": "password",
     "csrf": true,
@@ -179,6 +179,10 @@ Sites are declared in `core/auth/sites_config.json`. Each key is a `site_id`, an
   }
 }
 ```
+
+> **Note:** `core/auth/sites_config.json` is not tracked by git — it is kept
+> local per machine because it may contain credentials. Create it (or copy an
+> existing one) yourself; the example above shows the expected structure.
 
 | Field | Description |
 | :--- | :--- |
