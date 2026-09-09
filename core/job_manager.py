@@ -20,6 +20,7 @@ class Job:
     referer: str = field(default=None)    # referer derived from scraper (origin URL)
     thumb: str = field(default=None)      # cover image URL from scraper.py
     site_id: str = field(default=None)    # registered site id in core/auth (None = public, no login needed)
+    genres: list = field(default=None)    # genres derived from scraper (list of strings)
 
 
 class JobManager:
@@ -50,7 +51,8 @@ class JobManager:
                     chapters      TEXT,
                     thumb         TEXT,
                     referer       TEXT,
-                    site_id       TEXT
+                    site_id       TEXT,
+                    genres        TEXT
                 )
             """)
             self.conn.commit()
@@ -86,6 +88,11 @@ class JobManager:
                     "ALTER TABLE jobs ADD COLUMN site_id TEXT"
                 )
                 self.conn.commit()
+            if "genres" not in cols:
+                self.conn.execute(
+                    "ALTER TABLE jobs ADD COLUMN genres TEXT"
+                )
+                self.conn.commit()
 
     # ------------------------------------------------------------------
     # CRUD (synchronous - kept for internal use / startup, not the hot path)
@@ -110,15 +117,35 @@ class JobManager:
             return None
         return chapters if isinstance(chapters, list) else None
 
+    @staticmethod
+    def _genres_to_json(genres) -> str | None:
+        if not genres:
+            return None
+        try:
+            return json.dumps(genres, ensure_ascii=False)
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _genres_from_json(raw) -> list:
+        if not raw:
+            return None
+        try:
+            genres = json.loads(raw)
+        except (TypeError, ValueError):
+            return None
+        return genres if isinstance(genres, list) else None
+
     def add(self, job: Job):
         with self._lock:
             self.conn.execute(
                 """
-                INSERT OR IGNORE INTO jobs (url, title, save_path, status, current_chap, chapters, thumb, referer, site_id)
-                VALUES (?, ?, ?, 'waiting', NULL, ?, ?, ?, ?)
+                INSERT OR IGNORE INTO jobs (url, title, save_path, status, current_chap, chapters, thumb, referer, site_id, genres)
+                VALUES (?, ?, ?, 'waiting', NULL, ?, ?, ?, ?, ?)
                 """,
                 (job.url, job.title, str(job.save_path),
-                 self._chapters_to_json(job.chapters), job.thumb, job.referer, job.site_id),
+                 self._chapters_to_json(job.chapters), job.thumb, job.referer, job.site_id,
+                 self._genres_to_json(job.genres)),
             )
             self.conn.commit()
 
@@ -139,6 +166,7 @@ class JobManager:
             thumb=row["thumb"],
             referer=row["referer"],
             site_id=row["site_id"],
+            genres=self._genres_from_json(row["genres"]),
         )
 
     def update_status(self, url: str, status: str):
@@ -173,6 +201,14 @@ class JobManager:
             self.conn.execute(
                 "UPDATE jobs SET site_id = ? WHERE url = ?",
                 (site_id, url),
+            )
+            self.conn.commit()
+
+    def update_genres(self, url: str, genres: list):
+        with self._lock:
+            self.conn.execute(
+                "UPDATE jobs SET genres = ? WHERE url = ?",
+                (self._genres_to_json(genres), url),
             )
             self.conn.commit()
 
@@ -240,6 +276,7 @@ class JobManager:
                 thumb=r["thumb"],
                 referer=r["referer"],
                 site_id=r["site_id"],
+                genres=self._genres_from_json(r["genres"]),
             )
             for r in rows
         ]
@@ -262,6 +299,7 @@ class JobManager:
                 thumb=r["thumb"],
                 referer=r["referer"],
                 site_id=r["site_id"],
+                genres=self._genres_from_json(r["genres"]),
             )
             for r in rows
         ]
@@ -290,6 +328,10 @@ class JobManager:
     async def aupdate_site_id(self, url: str, site_id: str):
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, self.update_site_id, url, site_id)
+
+    async def aupdate_genres(self, url: str, genres: list):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self.update_genres, url, genres)
 
     async def areset_current_chap(self, url: str):
         loop = asyncio.get_running_loop()

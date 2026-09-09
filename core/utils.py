@@ -102,8 +102,8 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 
 DEFAULT_CONFIG = {
-    "max_workers": 10,
-    "max_concurrent_downloads": 10,
+    "max_workers": 8,
+    "max_concurrent_downloads": 8,
     "download_retry": 3,
     "chapter_retry": 2,
     "request_timeout": 30,
@@ -255,3 +255,80 @@ def save_config(config: dict) -> bool:
 
 
 CONFIG = load_config()
+
+# ================= LINK FILE VALIDATION (Add Queue by file) =================
+
+# A line is considered a valid job entry if it looks like an http(s) URL.
+URL_PATTERN = re.compile(r"^https?://\S+$", re.IGNORECASE)
+
+# Reject files above this size before even trying to read them (a link list
+# file should never be this large; avoids loading a huge binary into RAM).
+MAX_LINK_FILE_BYTES = 5 * 1024 * 1024  # 5 MB
+
+# How many leading bytes to sniff for a NUL byte (binary-content signature).
+BINARY_SNIFF_BYTES = 8192
+
+
+def _looks_binary(path: Path) -> bool:
+    """Cheap binary-content check: text files essentially never contain a
+    NUL byte, while executables/archives/media almost always do within the
+    first few KB. This catches .exe/.dll/.zip/etc. regardless of extension,
+    without needing to read the whole file."""
+    try:
+        with open(path, "rb") as f:
+            chunk = f.read(BINARY_SNIFF_BYTES)
+    except OSError:
+        return False  # let the caller's own read attempt report the error
+    return b"\x00" in chunk
+
+
+def parse_link_file(path) -> tuple[list, str | None, str | None]:
+    """Read and validate a link-list file.
+
+    Blank lines and lines starting with "#" are treated as comments and
+    ignored (not counted as invalid). Every remaining line must match
+    URL_PATTERN.
+
+    Returns (urls, error_code, error_detail):
+    - Success: (urls, None, None)
+    - Failure: ([], error_code, error_detail)
+      error_code is one of "too_large", "binary", "not_text", "read",
+      "empty", "invalid". error_detail holds extra context (offending
+      lines / OS error text) when relevant, otherwise None.
+    """
+    file_path = Path(path)
+
+    try:
+        size = file_path.stat().st_size
+    except OSError as e:
+        return [], "read", str(e)
+
+    if size > MAX_LINK_FILE_BYTES:
+        return [], "too_large", None
+
+    # Catches binaries (exe/dll/zip/media/...) regardless of extension,
+    # before we ever try to decode the whole file as text.
+    if _looks_binary(file_path):
+        return [], "binary", None
+
+    try:
+        content = file_path.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        return [], "not_text", None
+    except OSError as e:
+        return [], "read", str(e)
+
+    lines = [line.strip() for line in content.splitlines()]
+    lines = [line for line in lines if line and not line.startswith("#")]
+
+    if not lines:
+        return [], "empty", None
+
+    invalid_lines = [line for line in lines if not URL_PATTERN.match(line)]
+    if invalid_lines:
+        preview = "\n".join(invalid_lines[:5])
+        if len(invalid_lines) > 5:
+            preview += f"\n... (+{len(invalid_lines) - 5})"
+        return [], "invalid", preview
+
+    return lines, None, None

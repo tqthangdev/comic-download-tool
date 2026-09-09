@@ -35,7 +35,7 @@ HEADERS = {
     "Accept-Language": "vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7",
 }
 
-CHAPTER_REGEX = re.compile(r"\b(chapter|chương|chap|ch\.?)\s*[:\-]?\s*\d+(\.\d+)?", re.IGNORECASE)
+CHAPTER_REGEX = re.compile(r"\b(chapter|chương|chuong|chap|ch\.?)\s*[:\-]?\s*\d+(\.\d+)?", re.IGNORECASE)
 # Some sites (e.g. cmangax18) navigate chapters via onclick instead of <a href>
 ONCLICK_URL_RE = re.compile(r"location\.href\s*=\s*['\"]([^'\"]+)['\"]", re.IGNORECASE)
 DATE_REGEX = re.compile(
@@ -46,6 +46,8 @@ DATE_REGEX = re.compile(
     r"|((jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s?\d{1,2})",
     re.IGNORECASE,
 )
+GENRE_LABEL_REGEX = re.compile(r"^(thể\s*lo[aạ]i|genre)s?\s*:?\s*$", re.IGNORECASE)
+GENRE_HREF_REGEX = re.compile(r"/(the-loai|genre|tim-truyen)(/|$)", re.IGNORECASE)
 SKIP_TAGS = {"script", "style", "head", "noscript", "template", "svg"}
 
 
@@ -426,6 +428,26 @@ def _links_same_story(soup: BeautifulSoup, base_url: str) -> list:
     return result
 
 
+def _chapters_from_links(candidates, thumb_img, all_date_leaves):
+    """Build chapter rows from a list of same-story <a> candidates, deduping by
+    URL and keeping the row's sibling date when one exists."""
+    chapters = []
+    seen_urls = set()
+    for c in candidates:
+        url = c["url"]
+        if url in seen_urls:
+            continue
+        seen_urls.add(url)
+        row = find_row(c["element"], thumb_img, all_date_leaves)
+        update_times = find_time_in_row(row, c["element"], all_date_leaves)
+        chapters.append({
+            "name": c["text"],
+            "url": url,
+            "update_time": update_times[0] if update_times else None,
+        })
+    return chapters
+
+
 def find_chapters(soup: BeautifulSoup, base_url: str, thumb_img):
     leaves = find_chapter_leaves(soup)
     regex_group = pick_best_group(leaves)
@@ -440,26 +462,15 @@ def find_chapters(soup: BeautifulSoup, base_url: str, thumb_img):
         if url and _is_same_story(url, base_url):
             same_story.append(leaf)
 
-    # Fallback: regex finds no real chapter (chapter names without a
-    # 'Chapter/Chap' prefix, e.g. damconuong) -> scan every <a> on the base path.
-    if not same_story:
-        candidates = _links_same_story(soup, base_url)
-        # Drop navigation buttons ('read first'/'read latest') pointing at the same chapter
-        chapters = []
-        seen_urls = set()
-        for c in candidates:
-            url = c["url"]
-            if url in seen_urls:
-                continue
-            seen_urls.add(url)
-            row = find_row(c["element"], thumb_img, all_date_leaves)
-            update_times = find_time_in_row(row, c["element"], all_date_leaves)
-            chapters.append({
-                "name": c["text"],
-                "url": url,
-                "update_time": update_times[0] if update_times else None,
-            })
-        return chapters
+    # Fallback: scan every <a> on the base path. Used when the regex finds no real
+    # chapter (names without a 'Chapter/Chap' prefix, e.g. damconuong) AND when it
+    # finds far fewer than the link scan. Compilation pages (hentaivn 'tổng hợp'...)
+    # name their rows after the source story, so only the newest one happens to
+    # contain 'Chap N' — the regex would return 1 chapter out of dozens.
+    link_candidates = _links_same_story(soup, base_url)
+    link_count = len({c["url"] for c in link_candidates})
+    if not same_story or link_count >= max(len(same_story) * 2, 5):
+        return _chapters_from_links(link_candidates, thumb_img, all_date_leaves)
 
     chapters = []
     seen_urls = set()
@@ -492,23 +503,109 @@ def find_chapters(soup: BeautifulSoup, base_url: str, thumb_img):
 
 
 # ----------------------------------------------------------------------
+# 3b. Genres (label-based: find the "Thể loại"/"Genre" text label — which is
+# NOT itself a link — then collect the <a href> tags that follow it. A menu
+# item like <a>Thể Loại</a> is excluded automatically because it IS a link.
+# When multiple such labels exist (e.g. a sidebar widget titled "Thể loại"
+# that lists every genre on the whole site), the one with the FEWEST matching
+# links wins, since a site-wide genre list is always much bigger than a
+# single story's own genre list.)
+# ----------------------------------------------------------------------
+
+def _is_genre_href(url: str) -> bool:
+    try:
+        path = urlparse(url).path
+    except ValueError:
+        return False
+    return bool(GENRE_HREF_REGEX.search(path))
+
+
+def _last_slug(url: str) -> str:
+    path = urlparse(url).path.rstrip("/")
+    return path.rsplit("/", 1)[-1] if path else ""
+
+
+def find_genres(soup: BeautifulSoup, base_url: str) -> list:
+    label_els = []
+    for tag in soup.find_all(True):
+        if tag.name == "a":
+            continue  # a nav link like <a>Thể Loại</a> is not a "label"
+        text = leaf_text(tag)
+        if not text or not GENRE_LABEL_REGEX.match(text):
+            continue
+        # Accept non-leaf labels only when every descendant is an empty icon
+        # (e.g. <p><i class="fa fa-tags"></i>Thể loại</p>) — no real content
+        # of its own, so the tag's text is just the label.
+        if any(child.get_text(strip=True) for child in tag.find_all(True)):
+            continue
+        label_els.append(tag)
+
+    best = None  # list of <a> tags with the fewest matches so far
+
+    for label in label_els:
+        candidates = []
+        sib = label.find_next_sibling()
+        while sib is not None:
+            candidates.append(sib)
+            sib = sib.find_next_sibling()
+        parent = label.parent
+        if parent is not None:
+            parent_sib = parent.find_next_sibling()
+            if parent_sib is not None:
+                candidates.append(parent_sib)
+
+        found = []
+        for c in candidates:
+            if c.name == "a" and c.get("href"):
+                url = urljoin(base_url, c["href"])
+                if _is_genre_href(url):
+                    found.append(c)
+            for a in c.find_all("a", href=True):
+                url = urljoin(base_url, a["href"])
+                if _is_genre_href(url):
+                    found.append(a)
+
+        if found and (best is None or len(found) < len(best)):
+            best = found
+
+    if not best:
+        return []
+
+    genres = []
+    seen_urls = set()
+    for a in best:
+        url = urljoin(base_url, a["href"])
+        if url in seen_urls:
+            continue
+        seen_urls.add(url)
+        genres.append({
+            "name": leaf_text(a) or a.get_text(strip=True),
+            "slug": _last_slug(url),
+            "url": url,
+        })
+    return genres
+
+
+# ----------------------------------------------------------------------
 # Main
 # ----------------------------------------------------------------------
 
 def _extract_from_soup(soup: BeautifulSoup, base_url: str, debug: bool = False) -> dict:
     """Main pipeline: run the heuristics on the soup and return the exact
     contract the app consumes (engine + GUI):
-        {"title", "thumb", "referer", "chapters": [{"title", "url", "update_time"}]}
+        {"title", "thumb", "referer", "chapters": [{"title", "url", "update_time"}], "genres": [{"name", "slug", "url"}]}
     update_time is always a string (None -> "").
     """
     thumb = find_thumb(soup, base_url)
     title = find_title(soup, thumb["element"])
     chapters = find_chapters(soup, base_url, thumb["element"])
+    genres = find_genres(soup, base_url)
 
     result = {
         "title": title,
         "thumb": thumb["url"],
         "referer": get_referer(base_url),
+        "genres": genres,
         "chapters": [
             {
                 "title": c["name"],
@@ -522,6 +619,7 @@ def _extract_from_soup(soup: BeautifulSoup, base_url: str, debug: bool = False) 
     if debug:
         print(f"[debug] title source elements found: {bool(title)}", file=sys.stderr)
         print(f"[debug] thumb candidates found: {thumb['element'] is not None}", file=sys.stderr)
+        print(f"[debug] genres matched: {len(genres)}", file=sys.stderr)
         print(f"[debug] chapter leaves matched: {len(chapters)}", file=sys.stderr)
 
     return result

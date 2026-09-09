@@ -44,6 +44,24 @@ class Engine(QObject):
         # finishing the whole job after the record has already been removed.
         self.deleted_urls = set()
 
+    @staticmethod
+    def _normalize_genres(raw_genres, key: str = "slug") -> list[str]:
+        """Normalize genres to a flat list[str]."""
+        if not raw_genres:
+            return []
+
+        genres = []
+        for genre in raw_genres:
+            if isinstance(genre, str):
+                value = genre.strip()
+            elif isinstance(genre, dict):
+                value = str(genre.get(key) or "").strip()
+            else:
+                value = ""
+            if value:
+                genres.append(value)
+        return genres
+
     async def add_job(self, job: Job):
         existing = self.db.get_job(job.url)
 
@@ -65,6 +83,14 @@ class Engine(QObject):
                 await self.db.aupdate_thumb(job.url, job.thumb)
             elif existing.thumb and not job.thumb:
                 job.thumb = existing.thumb
+            # Genres may be a list of {name, slug, url} dicts (fresh from the
+            # scraper) or a flat list of strings (already normalized): normalize
+            # to the flat list shape before storing / comparing.
+            if not existing.genres and job.genres:
+                job.genres = self._normalize_genres(job.genres)
+                await self.db.aupdate_genres(job.url, job.genres)
+            elif existing.genres and not job.genres:
+                job.genres = self._normalize_genres(existing.genres)
             # Keep the site_id already on record unless the GUI explicitly
             # supplied a new one (e.g. user re-added the job picking a site).
             if not existing.site_id and job.site_id:
@@ -293,16 +319,24 @@ class Engine(QObject):
                     data = await self.crawl_job(job)
                     job.chapters = data.get("chapters") or []
                     job.thumb = data.get("thumb") or ""
+                    # scraper.py's find_genres() returns list[dict({name, slug, url})];
+                    # normalize to list[str] here so job.genres and the DB column
+                    # both deal with the same simple shape from now on.
+                    job.genres = self._normalize_genres(data.get("genres"))
+                    data["genres"] = job.genres
                     if job.chapters:
                         await self.db.aupdate_chapters(job.url, job.chapters)
                     if job.thumb:
                         await self.db.aupdate_thumb(job.url, job.thumb)
+                    if job.genres:
+                        await self.db.aupdate_genres(job.url, job.genres)
                 else:
                     data = {
                         "title": job.title,
                         "thumb": job.thumb or "",
                         "referer": job.referer or get_referer(job.url) or "",
                         "chapters": job.chapters,
+                        "genres": self._normalize_genres(job.genres),
                     }
 
                 has_failed, has_missing, missing_details = await self.download_job(
@@ -356,6 +390,7 @@ class Engine(QObject):
 
     async def download_job(self, job, data):
         await self._download_thumb(job, data)
+        await self._save_genres(job, data)
         referer = data.get("referer") or ""
 
         chapters = list(reversed(data["chapters"]))
@@ -382,7 +417,24 @@ class Engine(QObject):
             imgs = await self._extract_images_with_retry(
                 chap["url"], site_id=job.site_id
             )
-            chap_path = job.save_path / safe_filename(chap["title"])
+
+            chap_folder_name = f"{chap_index:04d} - {safe_filename(chap['title'])}"
+            chap_path = job.save_path / chap_folder_name
+
+            # Migration cho job tải bằng bản cũ (chưa có prefix số)
+            legacy_path = job.save_path / safe_filename(chap["title"])
+            if not chap_path.exists() and legacy_path.exists() and legacy_path != chap_path:
+                try:
+                    legacy_path.rename(chap_path)
+                    logger.info(
+                        f"[{job.title}] Migrated legacy chapter folder: "
+                        f"'{legacy_path.name}' -> '{chap_path.name}'"
+                    )
+                except OSError as e:
+                    logger.warning(
+                        f"[{job.title}] Failed to migrate legacy folder "
+                        f"'{legacy_path.name}': {e}"
+                    )
 
             if self.verify_chapter(chap_path, len(imgs)):
                 if self.running:
@@ -457,6 +509,30 @@ class Engine(QObject):
             if ext not in CONTENT_TYPE_EXT.values():
                 ext = ".jpg"  # fallback an toàn nếu extension lạ
             raw_file.rename(thumb_path / f"thumb{ext}")
+
+    async def _save_genres(self, job, data):
+        """Save the story's genres as a plain-text file (comma-separated),
+        in the same directory as the thumbnail (job.save_path).
+
+        data["genres"] is already normalized to list[str] by worker()."""
+        names = self._normalize_genres(data.get("genres"))
+        if not names:
+            return
+
+        genres_path = job.save_path / "genres.txt"
+        if genres_path.exists():
+            return  # already saved from a previous run
+
+        loop = asyncio.get_running_loop()
+
+        def _write():
+            job.save_path.mkdir(parents=True, exist_ok=True)
+            genres_path.write_text(", ".join(names), encoding="utf-8")
+
+        try:
+            await loop.run_in_executor(None, _write)
+        except Exception as e:
+            logger.error(f"[{job.title}] Failed to save genres.txt: {e}")
 
     async def _extract_images_with_retry(self, url, retries=2, site_id=None):
         last_err = None

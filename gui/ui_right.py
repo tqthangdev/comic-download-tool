@@ -10,6 +10,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import QSize, Qt, pyqtSignal
 
 from gui.queue_delegate import QueueDelegate
+from gui.theme import SCROLLBAR_STYLE
 from core.i18n import tr
 
 
@@ -55,17 +56,20 @@ class RightPanel(QWidget):
         QWidget#queue_list {
             background: transparent;
             border: 1px solid #adadad;
-            padding-right: 5px;
         }
-        """)
-        self._delegate = QueueDelegate()
+        """ + SCROLLBAR_STYLE)
+        self._delegate = QueueDelegate(self.queue_list)
         self.queue_list.setItemDelegate(self._delegate)
         self._delegate.deleteRequested.connect(self.deleteRequested)
         self.queue_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
         self.queue_label = QLabel(tr("queue"))
+        self.row_label = self.queue_label
+        self.row_buttons = QWidget()
+        self.row_buttons.setLayout(btn_row)
+
         layout.addWidget(self.queue_label)
-        layout.addLayout(btn_row)
+        layout.addWidget(self.row_buttons)
         layout.addWidget(self.queue_list)
 
         self.btn_clear.clicked.connect(self.clear_done)

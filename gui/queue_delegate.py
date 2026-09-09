@@ -1,5 +1,5 @@
 from PyQt6.QtWidgets import QStyledItemDelegate
-from PyQt6.QtGui import QPainter, QColor, QFontMetrics, QFont, QPixmap
+from PyQt6.QtGui import QColor, QFontMetrics, QPixmap
 from PyQt6.QtCore import Qt, QRect, QEvent, pyqtSignal
 
 
@@ -21,18 +21,62 @@ class QueueDelegate(QStyledItemDelegate):
     def __init__(self, parent=None):
         super().__init__(parent)
 
-        self.trash_pixmap = QPixmap("assets/trash.png")
+        self.trash_pixmap = QPixmap("assets/trash.svg")
 
-    def _trash_rect(self, option) -> QRect:
-        """Return the area occupied by the trash icon."""
-        rect = option.rect
+        # `parent` must be the view (QListView/QListWidget/etc.) so we can
+        # grab its viewport, enable mouse tracking, and install an event
+        # filter on it. QPixmap has no setCursor(), so the cursor has to be
+        # handled at the view/viewport level instead.
+        self._view = parent
+        if self._view is not None:
+            self._view.setMouseTracking(True)
+            self._view.viewport().setMouseTracking(True)
+            self._view.viewport().installEventFilter(self)
+            # Clear the reference the moment Qt destroys the C++ side, so we
+            # never try to touch a dangling wrapped object afterwards.
+            self._view.destroyed.connect(self._on_view_destroyed)
 
+    def _on_view_destroyed(self, *_):
+        self._view = None
+
+    def _trash_rect(self, row_rect: QRect) -> QRect:
+        """Return the area occupied by the trash icon, given the row's rect."""
         return QRect(
-            rect.left() + self.LEFT_PADDING,
-            rect.top() + (rect.height() - self.TRASH_SIZE) // 2 + self.TRASH_TOP_PADDING,
+            row_rect.left() + self.LEFT_PADDING,
+            row_rect.top() + (row_rect.height() - self.TRASH_SIZE) // 2 + self.TRASH_TOP_PADDING,
             self.TRASH_SIZE,
             self.TRASH_SIZE,
         )
+
+    def eventFilter(self, obj, event):
+        # Switch to a pointing-hand cursor while hovering over the trash
+        # icon, and reset it back to the default cursor otherwise.
+        #
+        # Guarded with try/except: during app teardown the view's C++ object
+        # can be destroyed while a queued event still triggers this filter,
+        # which raises RuntimeError on any attribute access. If that happens
+        # we just drop the reference and let the event pass through.
+        try:
+            if self._view is not None and obj is self._view.viewport():
+                if event.type() == QEvent.Type.MouseMove:
+                    index = self._view.indexAt(event.pos())
+
+                    if index.isValid():
+                        row_rect = self._view.visualRect(index)
+                        trash_rect = self._trash_rect(row_rect)
+
+                        if trash_rect.contains(event.pos()):
+                            self._view.viewport().setCursor(Qt.CursorShape.PointingHandCursor)
+                        else:
+                            self._view.viewport().unsetCursor()
+                    else:
+                        self._view.viewport().unsetCursor()
+                elif event.type() == QEvent.Type.Leave:
+                    self._view.viewport().unsetCursor()
+        except RuntimeError:
+            self._view = None
+
+        return super().eventFilter(obj, event)
 
     def paint(self, painter, option, index):
 
@@ -51,7 +95,7 @@ class QueueDelegate(QStyledItemDelegate):
         rect = option.rect
 
         # ================= TRASH ICON =================
-        trash_rect = self._trash_rect(option)
+        trash_rect = self._trash_rect(rect)
 
         if not self.trash_pixmap.isNull():
             painter.drawPixmap(
@@ -157,7 +201,7 @@ class QueueDelegate(QStyledItemDelegate):
     def editorEvent(self, event, model, option, index):
         if event.type() == QEvent.Type.MouseButtonRelease:
             if event.button() == Qt.MouseButton.LeftButton:
-                trash_rect = self._trash_rect(option)
+                trash_rect = self._trash_rect(option.rect)
 
                 if trash_rect.contains(event.pos()):
                     data = index.data(Qt.ItemDataRole.UserRole)

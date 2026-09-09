@@ -18,18 +18,82 @@ from PyQt6.QtWidgets import (
     QToolButton,
     QRadioButton,
     QButtonGroup,
+    QStackedWidget,
+    QFrame,
     QComboBox,
 )
 from PyQt6.QtCore import Qt, QSize, QSettings
 
 from core.utils import get_resource_path, CONFIG, save_config
 from core.i18n import tr, set_lang, get_lang
+from gui.cursor_utils import apply_pointer_cursors
+from gui.theme import SCROLLBAR_STYLE
 
+def make_radio_button(text: str) -> QRadioButton:
+    """Create a QRadioButton with the app's custom indicator icons
+    (checked/unchecked SVGs) applied, so every radio button in the app
+    looks consistent without repeating the same stylesheet everywhere.
+    """
+    btn = QRadioButton(text)
+    btn.setStyleSheet("""
+    QRadioButton::indicator {
+        width: 14px;
+        height: 14px;
+    }
+    QRadioButton::indicator:unchecked {
+        image: url("assets/radio-unchecked.svg");
+    }
+    QRadioButton::indicator:checked {
+        image: url("assets/radio-checked.svg");
+    }
+    """)
+    return btn
+
+def make_radio_button(text: str) -> QRadioButton:
+    """Create a QRadioButton with the app's custom indicator icons
+    (checked/unchecked SVGs) applied, so every radio button in the app
+    looks consistent without repeating the same stylesheet everywhere.
+    """
+    btn = QRadioButton(text)
+    btn.setStyleSheet("""
+    QRadioButton::indicator {
+        width: 14px;
+        height: 14px;
+    }
+    QRadioButton::indicator:unchecked {
+        image: url("assets/radio-unchecked.svg");
+    }
+    QRadioButton::indicator:checked {
+        image: url("assets/radio-checked.svg");
+    }
+    """)
+    return btn
+
+
+def make_checkbox(text: str) -> QCheckBox:
+    """Create a QCheckBox with the app's custom indicator icons
+    (checked/unchecked SVGs) applied, so every checkbox in the app
+    looks consistent without repeating the same stylesheet everywhere.
+    """
+    cb = QCheckBox(text)
+    cb.setStyleSheet("""
+    QCheckBox::indicator {
+        width: 18px;
+        height: 18px;
+    }
+    QCheckBox::indicator:unchecked {
+        image: url(assets/checkbox-unchecked.svg);
+    }
+    QCheckBox::indicator:checked {
+        image: url(assets/checkbox-checked.svg);
+    }
+    """)
+    return cb
 
 class LeftPanel(QWidget):
     """
     Left side of the main window:
-    - URL input + paste button
+    - Mode selector (manual / auto) + input row (URL/paste or file/choose)
     - Save path input + folder picker
     - "Use this path by default" checkbox
     - Add Queue button
@@ -48,21 +112,72 @@ class LeftPanel(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
 
-        # ================= URL AREA =================
-        url_area = QWidget()
+        # ================= MODE AREA (top, aligned with Queue label) =================
+        self.mode_area = QWidget()
+
+        mode_layout = QHBoxLayout(self.mode_area)
+        mode_layout.setContentsMargins(0, 0, 0, 0)
+        mode_layout.setSpacing(6)
+
+        mode_label = QLabel(tr("mode"))
+        self.rb_manual = make_radio_button(tr("mode_manual"))
+        self.rb_auto = make_radio_button(tr("mode_auto"))
+
+        # Default: manual (paste URL) — the historical behavior
+        self.rb_manual.setChecked(True)
+
+        mode_layout.addWidget(mode_label)
+        mode_layout.addWidget(self.rb_manual)
+        mode_layout.addWidget(self.rb_auto)
+        mode_layout.addStretch()
+
+        self.rb_manual.toggled.connect(self._on_mode_changed)
+        self.rb_auto.toggled.connect(self._on_mode_changed)
+
+        # ================= INPUT STACK (manual page / auto page) =================
+        self.input_stack = QStackedWidget()
+        self.input_stack.setFrameShape(QFrame.Shape.NoFrame)
+        self.input_stack.setContentsMargins(0, 0, 0, 0)
+
+        # --- manual page ---
+        manual_page = QWidget()
+        manual_layout = QHBoxLayout(manual_page)
+        manual_layout.setContentsMargins(0, 0, 0, 0)
+        manual_layout.setSpacing(6)
+
         self.url_input = QLineEdit()
         self.url_input.setPlaceholderText(tr("url_placeholder"))
         self.url_input.setReadOnly(True)
+        self.url_input.setFixedHeight(29)
 
         self.btn_paste = QPushButton(tr("paste"))
         self.btn_paste.setFixedWidth(80)
 
-        url_layout = QHBoxLayout(url_area)
-        url_layout.setContentsMargins(0, 0, 0, 0)
-        url_layout.setSpacing(6)
+        manual_layout.addWidget(self.url_input, 1)
+        manual_layout.addWidget(self.btn_paste)
 
-        url_layout.addWidget(self.url_input, 1)
-        url_layout.addWidget(self.btn_paste)
+        # --- auto page ---
+        auto_page = QWidget()
+        auto_layout = QHBoxLayout(auto_page)
+        auto_layout.setContentsMargins(0, 0, 0, 0)
+        auto_layout.setSpacing(6)
+
+        self.file_input = QLineEdit()
+        self.file_input.setPlaceholderText(tr("file_placeholder"))
+        self.file_input.setReadOnly(True)
+        self.file_input.setFixedHeight(29)
+
+        # Clicking the readonly textbox is the same as the button
+        self.file_input.mousePressEvent = self._pick_file_for_event
+
+        self.btn_pick_file = QPushButton(tr("file_pick"))
+        self.btn_pick_file.setFixedWidth(80)
+
+        auto_layout.addWidget(self.file_input, 1)
+        auto_layout.addWidget(self.btn_pick_file)
+
+        self.input_stack.addWidget(manual_page)  # index 0 = manual
+        self.input_stack.addWidget(auto_page)    # index 1 = auto
 
         # ================= CHECKBOX + SETTINGS =================
         settings_row = QWidget()
@@ -72,20 +187,20 @@ class LeftPanel(QWidget):
 
         checkbox_col = QVBoxLayout()
         checkbox_col.setContentsMargins(0, 0, 0, 0)
-        checkbox_col.setSpacing(2)
+        checkbox_col.setSpacing(6)
 
-        self.shutdown_cb = QCheckBox(tr("shutdown_after_done"))
+        self.shutdown_cb = make_checkbox(tr("shutdown_after_done"))
         shutdown_saved = self.settings.value("shutdown_after_done", False, type=bool)
         self.shutdown_cb.setChecked(shutdown_saved)
         self.shutdown_cb.toggled.connect(self.on_shutdown_toggled)
 
-        self.auto_queue_cb = QCheckBox(tr("auto_queue"))
+        self.auto_queue_cb = make_checkbox(tr("auto_queue"))
         auto_queue_saved = self.settings.value("auto_queue", False, type=bool)
         self.auto_queue_cb.setChecked(auto_queue_saved)
         self.auto_queue_cb.toggled.connect(self.on_auto_queue_toggled)
 
-        checkbox_col.addWidget(self.shutdown_cb)
-        checkbox_col.addWidget(self.auto_queue_cb)
+        checkbox_col.addWidget(self.shutdown_cb, 0, Qt.AlignmentFlag.AlignLeft)
+        checkbox_col.addWidget(self.auto_queue_cb, 0, Qt.AlignmentFlag.AlignLeft)
 
         self.btn_settings = QPushButton(tr("settings"))
         self.btn_settings.setFixedWidth(80)
@@ -134,7 +249,8 @@ class LeftPanel(QWidget):
             background: transparent;
             color: #00e5ff;
         }
-        """)
+        """ + SCROLLBAR_STYLE)
+
         self.tree.setHeaderLabels(["Chapter", "Time"])
         self.tree.setHeaderHidden(True)
         self.tree.header().setStretchLastSection(False)
@@ -185,6 +301,7 @@ class LeftPanel(QWidget):
         self.manga_title = QLabel("")
         self.manga_title.setStyleSheet("font-size:16px; font-weight:bold; color:#ff9800;")
         self.manga_title.setWordWrap(True)
+        self.manga_title.setMaximumHeight(200)
 
         info_layout.addWidget(self.manga_thumb)
         info_layout.addWidget(self.manga_title)
@@ -207,21 +324,27 @@ class LeftPanel(QWidget):
             border: none;
         }
         """)
-        detail_layout = QVBoxLayout(self.detail_chapter)
 
-        detail_layout.addWidget(self.chapter_header)
-        detail_layout.addWidget(self.tree)
+        detail_layout = QVBoxLayout(self.detail_chapter)
+        detail_layout.addWidget(self.chapter_header, 0)
+        detail_layout.addWidget(self.tree, 1)
 
         # ================= ASSEMBLE LEFT PANEL =================
-        layout.addWidget(QLabel(" "))
-        layout.addWidget(url_area)
-        layout.addWidget(path_area)
-        layout.addWidget(settings_row)
-        layout.addWidget(self.btn_add)
-        layout.addWidget(self.detail_chapter)
+        # The Mode row replaces the old top spacer; minor vertical margins keep
+        # the Mode label flush at the top, aligned with the Queue label row.
+        layout.addWidget(self.mode_area, 0)
+        layout.addWidget(self.input_stack, 0)
+        layout.addWidget(path_area, 0)
+        layout.addWidget(settings_row, 0)
+        layout.addWidget(self.btn_add, 0)
+        layout.addWidget(self.detail_chapter, 1)
 
         # events that only affect this panel's own widgets
         self.btn_folder.clicked.connect(self.pick_folder)
+        self.btn_pick_file.clicked.connect(self.pick_file)
+        self.url_input.textChanged.connect(lambda _=None: self._update_add_button())
+        self.file_input.textChanged.connect(lambda _=None: self._update_add_button())
+        self._on_mode_changed(self.rb_manual.isChecked())
 
     # =========================
     # SAVE THE SELECTED PATH (for the next run)
@@ -247,6 +370,8 @@ class LeftPanel(QWidget):
     # UPDATE TEXT WHEN THE LANGUAGE CHANGES
     # =========================
     def retranslate(self):
+        self.file_input.setPlaceholderText(tr("file_placeholder"))
+        self.btn_pick_file.setText(tr("file_pick"))
         self.url_input.setPlaceholderText(tr("url_placeholder"))
         self.path_input.setPlaceholderText(tr("path_placeholder"))
         self.btn_paste.setText(tr("paste"))
@@ -255,6 +380,9 @@ class LeftPanel(QWidget):
         self.btn_add.setText(tr("add_queue"))
         self.auto_queue_cb.setText(tr("auto_queue"))
         self.shutdown_cb.setText(tr("shutdown_after_done"))
+        if hasattr(self, "rb_manual"):
+            self.rb_manual.setText(tr("mode_manual"))
+            self.rb_auto.setText(tr("mode_auto"))
 
     # =========================
     # SETTINGS MODAL (read/write config.json)
@@ -273,6 +401,87 @@ class LeftPanel(QWidget):
         if folder:
             self.path_input.setText(folder)
             self._save_path()
+
+        # =========================
+    # FILE PICKER (add jobs from file)
+    # =========================
+    def _pick_file_for_event(self, event):
+        self.pick_file()
+
+    def pick_file(self):
+        """Open a file dialog and validate the chosen file as a link list.
+
+        Any file type can be picked ("All files"). The content is then
+        validated via core.utils.parse_link_file: it must be readable as
+        text and every non-empty, non-comment line must look like a valid
+        http(s) URL. On failure, an error modal is shown and the file is
+        not imported.
+        """
+        from PyQt6.QtWidgets import QFileDialog, QMessageBox
+        from core.utils import parse_link_file
+
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            tr("file_pick_title"),
+            "",
+            f"{tr('all_files')} (*)",
+        )
+        if not path:
+            return
+
+        _urls, error_code, error_detail = parse_link_file(path)
+
+        if error_code is not None:
+            message = tr(f"import_error_{error_code}")
+            if error_detail:
+                message = f"{message}\n\n{error_detail}"
+
+            QMessageBox.critical(self, tr("import_error_title"), message)
+            return
+
+        self.file_input.setText(path)
+        self._save_file_path()
+        self._update_add_button()
+
+    def _save_file_path(self):
+        self.settings.setValue("import_file", self.file_input.text().strip())
+
+    # =========================
+    # MODE CHANGE (manual / auto)
+    # =========================
+    def _on_mode_changed(self, checked):
+        """Switch between manual (paste URL) and auto (add jobs from a file).
+
+        Uses a QStackedWidget, so only one input row is ever visible:
+        - manual: URL text box + paste button
+        - auto:   file text box + choose-file button
+        """
+        manual = self.rb_manual.isChecked()
+
+        # Show the matching page of the input stack.
+        self.input_stack.setCurrentIndex(0 if manual else 1)
+
+        # add_queue is only enabled once a valid input is present:
+        # manual -> a URL has been loaded; auto -> a file has been chosen.
+        self._update_add_button()
+
+    # =========================
+    # UPDATE ADD-QUEUE BUTTON STATE
+    # =========================
+    def _update_add_button(self):
+        """Enable the Add Queue button when a valid input is present:
+        - manual mode: a URL has been loaded (title available)
+        - auto mode:   a file has been chosen
+        """
+        if self.rb_auto.isChecked():
+            self.btn_add.setEnabled(bool(self.file_input.text().strip()))
+            return
+
+        # manual mode: URL field may be populated; title is filled by on_load_chapters.
+        self.btn_add.setEnabled(
+            bool(self.url_input.text().strip())
+            and bool(self.manga_title.text().strip())
+        )
 
     # =========================
     # SHOW / HIDE LOADING
@@ -308,11 +517,115 @@ class _ConfigDialog(QDialog):
         ("field_timeout", "request_timeout", int, "field_timeout_desc"),
     ]
 
+    @staticmethod
+    def _make_help_button(callback) -> QToolButton:
+        """Create a "?" icon button with the shared hover style,
+        used to open a _HelpDialog with more detail about an option."""
+        btn = QToolButton()
+        btn.setText("?")
+        btn.setFixedSize(24, 24)
+        btn.setAutoRaise(True)
+        btn.setStyleSheet("""
+        QToolButton {
+            color: #e0e0e0;
+            border: none;
+            background: transparent;
+        }
+        QToolButton:hover {
+            color: #4CAF50;
+            font-weight: bold;
+            border: none;
+            background: transparent;
+        }
+        """)
+        btn.clicked.connect(callback)
+        return btn
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle(tr("settings_title"))
         self.setModal(True)
         self.setMinimumWidth(480)
+        self.setStyleSheet("""
+        QLineEdit, QSpinBox, QComboBox {
+            height: 16px;
+            background-color: #1e1e1e;
+            border: 1px solid #ffffff;
+            border-radius: 4px;
+            padding: 4px 6px;
+            color: #e0e0e0;
+        }
+        QLineEdit:focus, QSpinBox:focus, QComboBox:focus {
+            border: 2px solid #4CAF50;
+            background-color: #1e1e1e;
+        }
+        QLineEdit:focus, QSpinBox:focus {
+            padding: 2px 4px;
+        }
+        QComboBox:on {
+            color: #4CAF50;
+        }
+        QSpinBox::up-button, QSpinBox::down-button {
+            background-color: #1e1e1e;
+            border: none;
+            width: 16px;
+        }
+        QSpinBox::up-button {
+            subcontrol-position: top right;
+            border-top-right-radius: 4px;
+        }
+        QSpinBox::down-button {
+            subcontrol-position: bottom right;
+            border-bottom-right-radius: 4px;
+        }
+        QSpinBox::up-button:hover, QSpinBox::down-button:hover {
+            background-color: #1e1e1e;
+        }
+        QSpinBox::up-button:pressed, QSpinBox::down-button:pressed {
+            background-color: #1e1e1e;
+        }
+        QSpinBox::up-arrow {
+            image: url(assets/spin-up.svg);
+            width: 10px;
+            height: 6px;
+        }
+        QSpinBox::up-arrow:pressed {
+            image: url(assets/spin-up-active.svg);
+        }
+        QSpinBox::down-arrow {
+            image: url(assets/spin-down.svg);
+            width: 10px;
+            height: 6px;
+        }
+        QSpinBox::down-arrow:pressed {
+            image: url(assets/spin-down-active.svg);
+        }
+        QComboBox::drop-down {
+            subcontrol-origin: padding;
+            subcontrol-position: top right;
+            width: 20px;
+            border-left: 1px solid #1e1e1e;
+            background-color: #1e1e1e;
+            border-top-right-radius: 4px;
+            border-bottom-right-radius: 4px;
+        }
+        QComboBox::drop-down:hover {
+            background-color: #1e1e1e;
+        }
+        QComboBox::down-arrow {
+            image: url(assets/spin-down.svg);
+            width: 10px;
+            height: 6px;
+        }
+        QComboBox QAbstractItemView {
+            background-color: #1e1e1e;
+            color: #e0e0e0;
+            border: 1px solid #ffffff;
+            selection-background-color: #4fc3f7;
+            selection-color: #1e1e1e;
+            outline: none;
+        }
+        """)
 
         self._inputs = {}
 
@@ -358,19 +671,16 @@ class _ConfigDialog(QDialog):
             self._inputs[key] = widget
 
             # "?" icon — click to open the option detail modal
-            btn_help = QToolButton()
-            btn_help.setText("?")
-            btn_help.setFixedSize(24, 24)
-            btn_help.setAutoRaise(True)
-            btn_help.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn_help.clicked.connect(
+            btn_help = self._make_help_button(
                 lambda _=False, t=label, d=desc: _HelpDialog(t, d, self).exec()
             )
 
             row = QWidget()
+            row.setFixedHeight(26)
             row_layout = QHBoxLayout(row)
             row_layout.setContentsMargins(0, 0, 0, 0)
             row_layout.setSpacing(4)
+            
             row_layout.addWidget(widget, 1)
             row_layout.addWidget(btn_help)
 
@@ -380,12 +690,14 @@ class _ConfigDialog(QDialog):
 
         # ===== RADIO: SAVE THUMBNAIL WHEN DOWNLOADING =====
         thumb_row = QWidget()
+        thumb_row.setFixedHeight(26)
+
         thumb_layout = QHBoxLayout(thumb_row)
         thumb_layout.setContentsMargins(0, 0, 0, 0)
         thumb_layout.setSpacing(4)
 
-        self.rb_thumb_yes = QRadioButton(tr("thumb_yes"))
-        self.rb_thumb_no = QRadioButton(tr("thumb_no"))
+        self.rb_thumb_yes = make_radio_button(tr("thumb_yes"))
+        self.rb_thumb_no = make_radio_button(tr("thumb_no"))
         self._thumb_group = QButtonGroup(self)
         self._thumb_group.addButton(self.rb_thumb_yes)
         self._thumb_group.addButton(self.rb_thumb_no)
@@ -398,12 +710,7 @@ class _ConfigDialog(QDialog):
         thumb_layout.addWidget(self.rb_thumb_no)
         thumb_layout.addStretch()
 
-        btn_thumb_help = QToolButton()
-        btn_thumb_help.setText("?")
-        btn_thumb_help.setFixedSize(24, 24)
-        btn_thumb_help.setAutoRaise(True)
-        btn_thumb_help.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn_thumb_help.clicked.connect(
+        btn_thumb_help = self._make_help_button(
             lambda _=False: _HelpDialog(
                 tr("thumb_help_title"),
                 tr("thumb_help_desc"),
@@ -412,7 +719,6 @@ class _ConfigDialog(QDialog):
         )
 
         thumb_layout.addWidget(btn_thumb_help)
-
         form.addRow(tr("save_thumb"), thumb_row)
 
         buttons = QDialogButtonBox()
@@ -421,6 +727,11 @@ class _ConfigDialog(QDialog):
         btn_apply.clicked.connect(self._on_apply)
         btn_cancel.clicked.connect(self.reject)
         layout.addWidget(buttons)
+
+        apply_pointer_cursors(self)
+
+        # Don't auto-focus cb_lang (the first widget) when the dialog opens.
+        self.setFocus()
 
     def _on_apply(self):
         new_config = dict(CONFIG)
@@ -480,3 +791,5 @@ class _HelpDialog(QDialog):
         layout.addWidget(title_label)
         layout.addWidget(desc_label)
         layout.addWidget(buttons)
+
+        apply_pointer_cursors(self)

@@ -1,4 +1,5 @@
 import asyncio
+import os
 import platform
 import subprocess
 import sys
@@ -10,12 +11,13 @@ from qasync import asyncSlot
 
 from PyQt6.QtGui import QPixmap, QCursor, QIcon
 from PyQt6.QtWidgets import QApplication, QDialog, QWidget, QHBoxLayout, QMessageBox, QPushButton
-from PyQt6.QtCore import QSettings, QTimer, Qt
+from PyQt6.QtCore import QSettings, QTimer, Qt, QEvent
 
 from gui.ui_left import LeftPanel
 from gui.ui_right import RightPanel
 from gui.restore_dialog import RestoreDialog
 from gui.login_dialog import prompt_login
+from gui.cursor_utils import apply_pointer_cursors
 from core.logger import logger
 from core.i18n import tr, add_listener
 from core.auth import auth_manager
@@ -80,7 +82,7 @@ class MainWindow(QWidget):
             color: #e0e0e0;
         }
         QLineEdit:focus {
-            border: 2px solid #4fc3f7;
+            border: 2px solid #4CAF50;
             background-color: #333333;
         }
         """)
@@ -174,20 +176,13 @@ class MainWindow(QWidget):
     def _apply_cursors(self):
         """Qt Style Sheets do not support the cursor property -> set it in code.
 
-        Hover over a button: pointer. Disabled button: not-allowed (forbidden).
+        Hover over a button/tool button: pointer, and switches to "forbidden"
+        when disabled (tracked via eventFilter). Checkboxes and radio buttons:
+        pointer, no disabled-state tracking needed in this app.
         """
-        pointer = QCursor(Qt.CursorShape.PointingHandCursor)
-        forbidden = QCursor(Qt.CursorShape.ForbiddenCursor)
-
-        buttons = self.findChildren(QPushButton)
-        for btn in buttons:
-            btn.setCursor(pointer)
-            # update the cursor when the enabled/disabled state changes
-            btn.installEventFilter(self)
+        apply_pointer_cursors(self, event_filter=self)
 
     def eventFilter(self, obj, event):
-        from PyQt6.QtCore import QEvent
-
         if isinstance(obj, QPushButton) and event.type() == QEvent.Type.EnabledChange:
             cursor = (
                 QCursor(Qt.CursorShape.ForbiddenCursor)
@@ -316,14 +311,14 @@ class MainWindow(QWidget):
                     [chap["title"], chap["update_time"]]
                 )
 
-            self.left.btn_add.setDisabled(False)
-
             if not chapters:
                 self._show_message(
                     tr("notify"),
                     tr("no_chapters")
                 )
-                self.left.btn_add.setDisabled(True)
+                self.left.btn_add.setEnabled(False)
+            else:
+                self.left._update_add_button()
 
             self.left.on_loading(False)
 
@@ -351,6 +346,14 @@ class MainWindow(QWidget):
     # =========================
     @asyncSlot()
     async def add_queue(self):
+
+        # Branch on the selected mode:
+        #   auto -> import all links from the chosen file
+        #   manual -> add the single URL currently pasted in the input box
+        if self.left.rb_auto.isChecked():
+            import_file = self.left.file_input.text().strip()
+            await self.add_jobs_from_file(import_file)
+            return
 
         url = self.left.url_input.text().strip()
         title = self.left.manga_title.text().strip()
@@ -384,6 +387,7 @@ class MainWindow(QWidget):
                 chapters=loaded.get("chapters") or None,
                 referer=loaded.get("referer"),
                 thumb=loaded.get("thumb") or None,
+                genres=loaded.get("genres") or None,
                 site_id=site_id,
             )
 
@@ -421,6 +425,7 @@ class MainWindow(QWidget):
                     )
 
             self._update_pause_button()
+            self.left._update_add_button()
 
         except Exception as e:
 
@@ -429,6 +434,144 @@ class MainWindow(QWidget):
                 str(e),
                 critical=True
             )
+
+    # =========================
+    # ADD JOBS FROM FILE
+    # =========================
+    @asyncSlot(str)
+    async def add_jobs_from_file(self, path: str):
+        """Read a list of links from a file and add each one to the queue.
+
+        Login is resolved once per site (not per link) in a sequential pass,
+        then chapters are crawled concurrently (bounded by max_workers) since
+        the network request is the slow part.
+        """
+        base_path = self.left.path_input.text().strip()
+        if not base_path:
+            self._show_message(
+                tr("path_warning_title"),
+                tr("path_empty"),
+                critical=True,
+            )
+            return
+
+        from core.job_manager import Job
+        from core.utils import safe_filename, CONFIG
+
+        if not os.path.exists(path):
+            self._show_message(
+                tr("error"),
+                tr("file_empty"),
+                critical=True,
+            )
+            return
+
+        from core.utils import parse_link_file
+
+        links, error_code, error_detail = parse_link_file(path)
+
+        if error_code is not None:
+            message = tr(f"import_error_{error_code}")
+            if error_detail:
+                message = f"{message}\n\n{error_detail}"
+
+            self._show_message(
+                tr("import_error_title"),
+                message,
+                critical=True,
+            )
+            return
+
+        from gui.add_jobs_dialog import AddJobsDialog
+
+        modal = AddJobsDialog(self)
+        modal.set_progress(0, len(links))
+        modal.show()
+        # Give the modal a chance to paint before the first crawl
+        await asyncio.sleep(0)
+
+        # ---- Pass 1: resolve site_id per link, ask login ONCE per site ----
+        # (previously this was checked/prompted inside the per-link loop, which
+        # is fine sequentially but would race if done inside the concurrent pass)
+        site_map = {}
+        sites_needed = set()
+        for url in links:
+            site_id = auth_manager.site_id_for_url(url)
+            site_map[url] = site_id
+            if site_id:
+                sites_needed.add(site_id)
+
+        for site_id in sites_needed:
+            if not auth_manager.is_logged_in(site_id):
+                if not prompt_login(self, default_site=site_id):
+                    # User cancelled login for this site -> drop every link
+                    # belonging to it instead of failing the whole batch.
+                    links = [u for u in links if site_map[u] != site_id]
+
+        if not links:
+            modal.close()
+            modal.deleteLater()
+            self._show_message(
+                tr("notify"),
+                tr("adding_jobs_done").format(added=0),
+            )
+            return
+
+        modal.set_progress(0, len(links))
+
+        # ---- Pass 2: crawl concurrently, bounded by max_workers ----
+        max_workers = max(1, int(CONFIG.get("max_workers", 4)))
+        semaphore = asyncio.Semaphore(max_workers)
+        db_lock = asyncio.Lock()  # serialize add_job + UI update, not the crawling
+        state = {"completed": 0, "added": 0}
+
+        async def process(url):
+            site_id = site_map.get(url)
+            data = None
+            try:
+                async with semaphore:
+                    data = await self.engine.crawler.get_chapters(url, site_id=site_id)
+            except Exception as e:
+                logger.error(f"[add_from_file] Skipped {url}: {e}")
+
+            title = data.get("title", "") if data else ""
+            if title:
+                save_path = Path(base_path) / safe_filename(title)
+                job = Job(
+                    url=url,
+                    title=title,
+                    save_path=save_path,
+                    chapters=data.get("chapters") or None,
+                    referer=data.get("referer"),
+                    thumb=data.get("thumb") or None,
+                    genres=data.get("genres") or None,
+                    site_id=site_id,
+                )
+
+                async with db_lock:
+                    result = await self.engine.add_job(job)
+                    status = "Waiting" if self.engine.running else ""
+                    if result in ("queued", "resume"):
+                        self.right.update_queue_item(url, job, status)
+                        state["added"] += 1
+
+            state["completed"] += 1
+            modal.set_progress(state["completed"], len(links))
+            # Let Qt repaint periodically without adding it to every task
+            if state["completed"] % 5 == 0:
+                await asyncio.sleep(0)
+
+        try:
+            await asyncio.gather(*(process(url) for url in links))
+        finally:
+            modal.close()
+            modal.deleteLater()
+
+        self._update_pause_button()
+        self._show_message(
+            tr("notify"),
+            tr("adding_jobs_done").format(added=state["added"]),
+        )
 
     # =========================
     # LOGIN REQUIRED (from Engine, mid-queue)
