@@ -6,6 +6,8 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
 )
 
+from gui.theme import PROGRESS_STYLE
+
 
 class RestoreDialog(QDialog):
     def __init__(self, parent=None):
@@ -26,18 +28,7 @@ class RestoreDialog(QDialog):
         self.progress.setRange(0, 0)
         self.progress.setTextVisible(False)
 
-        self.progress.setStyleSheet("""
-        QProgressBar {
-            border: 1px solid #3a3a3a;
-            border-radius: 4px;
-            background-color: #1e1e1e;
-        }
-
-        QProgressBar::chunk {
-            background-color: #4caf50;
-            border-radius: 3px;
-        }
-        """)
+        self.progress.setStyleSheet(PROGRESS_STYLE)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 20, 20, 20)

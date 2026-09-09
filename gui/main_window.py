@@ -18,6 +18,7 @@ from gui.ui_right import RightPanel
 from gui.restore_dialog import RestoreDialog
 from gui.login_dialog import prompt_login
 from gui.cursor_utils import apply_pointer_cursors
+from gui.theme import MAIN_WINDOW_STYLE
 from core.logger import logger
 from core.i18n import tr, add_listener
 from core.auth import auth_manager
@@ -51,41 +52,7 @@ class MainWindow(QWidget):
 
         self.setWindowTitle(tr("app_title"))
         self.setGeometry(100, 100, 900, 650)
-        self.setStyleSheet("""
-        QWidget {
-            background-color: #1e1e1e;
-            color: #d4d4d4;
-        }
-        QPushButton {
-            background-color: #3a3a3a;
-            border: 1px solid #555555;
-            border-radius: 4px;
-            padding: 5px 12px;
-            color: #e0e0e0;
-        }
-        QPushButton:hover {
-            background-color: #4a4a4a;
-        }
-        QPushButton:pressed {
-            background-color: #2f2f2f;
-        }
-        QPushButton:disabled {
-            background-color: #262626;
-            border-color: #3a3a3a;
-            color: #6e6e6e;
-        }
-        QLineEdit {
-            background-color: #2d2d2d;
-            border: 1px solid #ffffff;
-            border-radius: 4px;
-            padding: 5px 8px;
-            color: #e0e0e0;
-        }
-        QLineEdit:focus {
-            border: 2px solid #4CAF50;
-            background-color: #333333;
-        }
-        """)
+        self.setStyleSheet(MAIN_WINDOW_STYLE)
 
         self.init_ui()
         self._closing = False

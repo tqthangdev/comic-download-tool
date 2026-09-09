@@ -27,7 +27,16 @@ from PyQt6.QtCore import Qt, QSize, QSettings
 from core.utils import get_resource_path, CONFIG, save_config
 from core.i18n import tr, set_lang, get_lang
 from gui.cursor_utils import apply_pointer_cursors
-from gui.theme import SCROLLBAR_STYLE
+from gui.theme import (
+    RADIO_STYLE,
+    CHECKBOX_STYLE,
+    MANGA_TITLE_STYLE,
+    HELP_TITLE_STYLE,
+    TREE_STYLE,
+    CHAPTER_PANEL_STYLE,
+    CONFIG_DIALOG_STYLE,
+    HELP_BUTTON_STYLE,
+)
 
 def make_radio_button(text: str) -> QRadioButton:
     """Create a QRadioButton with the app's custom indicator icons
@@ -35,38 +44,7 @@ def make_radio_button(text: str) -> QRadioButton:
     looks consistent without repeating the same stylesheet everywhere.
     """
     btn = QRadioButton(text)
-    btn.setStyleSheet("""
-    QRadioButton::indicator {
-        width: 14px;
-        height: 14px;
-    }
-    QRadioButton::indicator:unchecked {
-        image: url("assets/radio-unchecked.svg");
-    }
-    QRadioButton::indicator:checked {
-        image: url("assets/radio-checked.svg");
-    }
-    """)
-    return btn
-
-def make_radio_button(text: str) -> QRadioButton:
-    """Create a QRadioButton with the app's custom indicator icons
-    (checked/unchecked SVGs) applied, so every radio button in the app
-    looks consistent without repeating the same stylesheet everywhere.
-    """
-    btn = QRadioButton(text)
-    btn.setStyleSheet("""
-    QRadioButton::indicator {
-        width: 14px;
-        height: 14px;
-    }
-    QRadioButton::indicator:unchecked {
-        image: url("assets/radio-unchecked.svg");
-    }
-    QRadioButton::indicator:checked {
-        image: url("assets/radio-checked.svg");
-    }
-    """)
+    btn.setStyleSheet(RADIO_STYLE)
     return btn
 
 
@@ -76,18 +54,7 @@ def make_checkbox(text: str) -> QCheckBox:
     looks consistent without repeating the same stylesheet everywhere.
     """
     cb = QCheckBox(text)
-    cb.setStyleSheet("""
-    QCheckBox::indicator {
-        width: 18px;
-        height: 18px;
-    }
-    QCheckBox::indicator:unchecked {
-        image: url(assets/checkbox-unchecked.svg);
-    }
-    QCheckBox::indicator:checked {
-        image: url(assets/checkbox-checked.svg);
-    }
-    """)
+    cb.setStyleSheet(CHECKBOX_STYLE)
     return cb
 
 class LeftPanel(QWidget):
@@ -240,16 +207,7 @@ class LeftPanel(QWidget):
         # ================= TREE =================
         self.tree = QTreeWidget()
         self.tree.setObjectName("detail_tree")
-        self.tree.setStyleSheet("""
-        QWidget#detail_tree {
-            background: transparent;
-            border: 1px solid transparent;
-        }
-        QTreeWidget#detail_tree::item {
-            background: transparent;
-            color: #00e5ff;
-        }
-        """ + SCROLLBAR_STYLE)
+        self.tree.setStyleSheet(TREE_STYLE)
 
         self.tree.setHeaderLabels(["Chapter", "Time"])
         self.tree.setHeaderHidden(True)
@@ -299,7 +257,7 @@ class LeftPanel(QWidget):
 
         # TITLE
         self.manga_title = QLabel("")
-        self.manga_title.setStyleSheet("font-size:16px; font-weight:bold; color:#ff9800;")
+        self.manga_title.setStyleSheet(MANGA_TITLE_STYLE)
         self.manga_title.setWordWrap(True)
         self.manga_title.setMaximumHeight(200)
 
@@ -313,17 +271,7 @@ class LeftPanel(QWidget):
         # ================= DETAIL CHAPTER PANEL =================
         self.detail_chapter = QWidget()
         self.detail_chapter.setObjectName("detail_chapter")
-        self.detail_chapter.setStyleSheet("""
-        QWidget#detail_chapter {
-            background: transparent;
-            border: 1px solid #adadad;
-        }
-        QHeaderView::section {
-            background: transparent;
-            color: #00e5ff;
-            border: none;
-        }
-        """)
+        self.detail_chapter.setStyleSheet(CHAPTER_PANEL_STYLE)
 
         detail_layout = QVBoxLayout(self.detail_chapter)
         detail_layout.addWidget(self.chapter_header, 0)
@@ -525,19 +473,7 @@ class _ConfigDialog(QDialog):
         btn.setText("?")
         btn.setFixedSize(24, 24)
         btn.setAutoRaise(True)
-        btn.setStyleSheet("""
-        QToolButton {
-            color: #e0e0e0;
-            border: none;
-            background: transparent;
-        }
-        QToolButton:hover {
-            color: #4CAF50;
-            font-weight: bold;
-            border: none;
-            background: transparent;
-        }
-        """)
+        btn.setStyleSheet(HELP_BUTTON_STYLE)
         btn.clicked.connect(callback)
         return btn
 
@@ -546,86 +482,7 @@ class _ConfigDialog(QDialog):
         self.setWindowTitle(tr("settings_title"))
         self.setModal(True)
         self.setMinimumWidth(480)
-        self.setStyleSheet("""
-        QLineEdit, QSpinBox, QComboBox {
-            height: 16px;
-            background-color: #1e1e1e;
-            border: 1px solid #ffffff;
-            border-radius: 4px;
-            padding: 4px 6px;
-            color: #e0e0e0;
-        }
-        QLineEdit:focus, QSpinBox:focus, QComboBox:focus {
-            border: 2px solid #4CAF50;
-            background-color: #1e1e1e;
-        }
-        QLineEdit:focus, QSpinBox:focus {
-            padding: 2px 4px;
-        }
-        QComboBox:on {
-            color: #4CAF50;
-        }
-        QSpinBox::up-button, QSpinBox::down-button {
-            background-color: #1e1e1e;
-            border: none;
-            width: 16px;
-        }
-        QSpinBox::up-button {
-            subcontrol-position: top right;
-            border-top-right-radius: 4px;
-        }
-        QSpinBox::down-button {
-            subcontrol-position: bottom right;
-            border-bottom-right-radius: 4px;
-        }
-        QSpinBox::up-button:hover, QSpinBox::down-button:hover {
-            background-color: #1e1e1e;
-        }
-        QSpinBox::up-button:pressed, QSpinBox::down-button:pressed {
-            background-color: #1e1e1e;
-        }
-        QSpinBox::up-arrow {
-            image: url(assets/spin-up.svg);
-            width: 10px;
-            height: 6px;
-        }
-        QSpinBox::up-arrow:pressed {
-            image: url(assets/spin-up-active.svg);
-        }
-        QSpinBox::down-arrow {
-            image: url(assets/spin-down.svg);
-            width: 10px;
-            height: 6px;
-        }
-        QSpinBox::down-arrow:pressed {
-            image: url(assets/spin-down-active.svg);
-        }
-        QComboBox::drop-down {
-            subcontrol-origin: padding;
-            subcontrol-position: top right;
-            width: 20px;
-            border-left: 1px solid #1e1e1e;
-            background-color: #1e1e1e;
-            border-top-right-radius: 4px;
-            border-bottom-right-radius: 4px;
-        }
-        QComboBox::drop-down:hover {
-            background-color: #1e1e1e;
-        }
-        QComboBox::down-arrow {
-            image: url(assets/spin-down.svg);
-            width: 10px;
-            height: 6px;
-        }
-        QComboBox QAbstractItemView {
-            background-color: #1e1e1e;
-            color: #e0e0e0;
-            border: 1px solid #ffffff;
-            selection-background-color: #4fc3f7;
-            selection-color: #1e1e1e;
-            outline: none;
-        }
-        """)
+        self.setStyleSheet(CONFIG_DIALOG_STYLE)
 
         self._inputs = {}
 
@@ -775,7 +632,7 @@ class _HelpDialog(QDialog):
         layout = QVBoxLayout(self)
 
         title_label = QLabel(title)
-        title_label.setStyleSheet("font-size:14px; font-weight:bold; color:#ff9800;")
+        title_label.setStyleSheet(HELP_TITLE_STYLE)
         title_label.setWordWrap(True)
 
         desc_label = QLabel(description)
