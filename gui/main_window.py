@@ -51,7 +51,11 @@ class MainWindow(QWidget):
         set_lang(CONFIG.get("language", "vi"))
 
         self.setWindowTitle(tr("app_title"))
-        self.setGeometry(100, 100, 900, 650)
+        self.resize(850, 650)
+        screen = self.screen().availableGeometry()
+        window = self.frameGeometry()
+        window.moveCenter(screen.center())
+        self.move(window.topLeft())
         self.setStyleSheet(MAIN_WINDOW_STYLE)
 
         self.init_ui()

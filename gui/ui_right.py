@@ -60,6 +60,7 @@ class RightPanel(QWidget):
 
         self.queue_label = QLabel(tr("queue"))
         self.row_label = self.queue_label
+
         self.row_buttons = QWidget()
         self.row_buttons.setLayout(btn_row)
 
@@ -68,13 +69,22 @@ class RightPanel(QWidget):
         layout.addWidget(self.queue_list)
 
         self.btn_clear.clicked.connect(self.clear_done)
+        self._update_queue_label()
 
     def retranslate(self):
         self.btn_start.setText(tr("start"))
         self.btn_resume.setText(tr("resume"))
         self.btn_pause.setText(tr("pause"))
         self.btn_clear.setText(tr("clear_done"))
-        self.queue_label.setText(tr("queue"))
+        self._update_queue_label()
+
+    def _update_queue_label(self):
+        """Show the queue size in the header ("Queue has N comics")."""
+        count = self.queue_list.count()
+        if count:
+            self.queue_label.setText(tr("queue_with_count").format(count=count))
+        else:
+            self.queue_label.setText(tr("queue"))
 
     def exists_in_queue(self, url):
         result = {"exists": False, "data": None}
@@ -110,6 +120,7 @@ class RightPanel(QWidget):
         )
 
         self.queue_list.addItem(item)
+        self._update_queue_label()
 
     def update_queue_item(self, url, job, status):
         result = self.exists_in_queue(job.url)
@@ -141,6 +152,7 @@ class RightPanel(QWidget):
 
             if data and data.get("url") == url:
                 self.queue_list.takeItem(i)
+                self._update_queue_label()
                 return
 
     def clear_done(self):
@@ -151,3 +163,4 @@ class RightPanel(QWidget):
 
             if data and data.get("status") in ["Done", "Done with missing images"]:
                 self.queue_list.takeItem(i)
+        self._update_queue_label()
