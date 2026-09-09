@@ -298,3 +298,19 @@ QComboBox QAbstractItemView {
 # Section titles: large (manga title, left panel) / small (help dialog).
 MANGA_TITLE_STYLE = "font-size:16px; font-weight:bold; color:#ff9800;"
 HELP_TITLE_STYLE = "font-size:14px; font-weight:bold; color:#ff9800;"
+
+# Compact input (shutdown countdown box in the sidebar): same colors as the
+# regular inputs but with minimal padding so it stays small.
+COMPACT_INPUT_STYLE = """
+QLineEdit {
+    background-color: #2d2d2d;
+    border: 1px solid #ffffff;
+    border-radius: 3px;
+    padding: 0px 4px;
+    color: #e0e0e0;
+}
+QLineEdit:focus {
+    border: 2px solid #4CAF50;
+    background-color: #333333;
+}
+"""

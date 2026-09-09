@@ -827,7 +827,7 @@ class MainWindow(QWidget):
 
     def _confirm_shutdown(self):
         self._shutdown_cancelled = False
-        self._shutdown_seconds_left = 60
+        self._shutdown_seconds_left = self.left.shutdown_delay_seconds
 
         box = QMessageBox(self)
         box.setWindowTitle(tr("shutdown_confirm_title"))

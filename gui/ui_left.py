@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from PyQt6.QtGui import QMovie
+from PyQt6.QtGui import QMovie, QIntValidator
 from PyQt6.QtWidgets import (
     QWidget,
     QVBoxLayout,
@@ -36,6 +36,7 @@ from gui.theme import (
     CHAPTER_PANEL_STYLE,
     CONFIG_DIALOG_STYLE,
     HELP_BUTTON_STYLE,
+    COMPACT_INPUT_STYLE,
 )
 
 def make_radio_button(text: str) -> QRadioButton:
@@ -161,12 +162,36 @@ class LeftPanel(QWidget):
         self.shutdown_cb.setChecked(shutdown_saved)
         self.shutdown_cb.toggled.connect(self.on_shutdown_toggled)
 
+        # Text box next to the checkbox: countdown (seconds) before shutdown.
+        saved_delay = self.settings.value("shutdown_delay", 60, type=int)
+        self.shutdown_delay = QLineEdit()
+        self.shutdown_delay.setValidator(QIntValidator(1, 3600, self))
+        self.shutdown_delay.setText(str(saved_delay if isinstance(saved_delay, int) else 60))
+        self.shutdown_delay.setFixedSize(38, 22)
+        self.shutdown_delay.setStyleSheet(COMPACT_INPUT_STYLE)
+        self.shutdown_delay.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.shutdown_delay.setToolTip(tr("shutdown_delay_hint"))
+        self.shutdown_delay.editingFinished.connect(self._save_shutdown_delay)
+        self.shutdown_delay.setEnabled(self.shutdown_cb.isChecked())
+
+        self.shutdown_delay_unit = QLabel(tr("shutdown_seconds"))
+        self.shutdown_delay_unit.setToolTip(tr("shutdown_delay_hint"))
+
+        shutdown_row = QWidget()
+        shutdown_row_layout = QHBoxLayout(shutdown_row)
+        shutdown_row_layout.setContentsMargins(0, 0, 0, 0)
+        shutdown_row_layout.setSpacing(6)
+        shutdown_row_layout.addWidget(self.shutdown_cb)
+        shutdown_row_layout.addWidget(self.shutdown_delay)
+        shutdown_row_layout.addWidget(self.shutdown_delay_unit)
+        shutdown_row_layout.addStretch()
+
         self.auto_queue_cb = make_checkbox(tr("auto_queue"))
         auto_queue_saved = self.settings.value("auto_queue", False, type=bool)
         self.auto_queue_cb.setChecked(auto_queue_saved)
         self.auto_queue_cb.toggled.connect(self.on_auto_queue_toggled)
 
-        checkbox_col.addWidget(self.shutdown_cb, 0, Qt.AlignmentFlag.AlignLeft)
+        checkbox_col.addWidget(shutdown_row, 0, Qt.AlignmentFlag.AlignLeft)
         checkbox_col.addWidget(self.auto_queue_cb, 0, Qt.AlignmentFlag.AlignLeft)
 
         self.btn_settings = QPushButton(tr("settings"))
@@ -313,6 +338,24 @@ class LeftPanel(QWidget):
     # =========================
     def on_shutdown_toggled(self, checked):
         self.settings.setValue("shutdown_after_done", checked)
+        self.shutdown_delay.setEnabled(checked)
+
+    def _save_shutdown_delay(self):
+        """Clamp + persist the countdown value typed in the delay text box."""
+        try:
+            value = max(1, min(int(self.shutdown_delay.text().strip() or "60"), 3600))
+        except ValueError:
+            value = 60
+        self.shutdown_delay.setText(str(value))
+        self.settings.setValue("shutdown_delay", value)
+
+    @property
+    def shutdown_delay_seconds(self) -> int:
+        """Countdown (seconds) currently shown next to the shutdown checkbox."""
+        try:
+            return max(1, min(int(self.shutdown_delay.text().strip() or "60"), 3600))
+        except ValueError:
+            return 60
 
     # =========================
     # UPDATE TEXT WHEN THE LANGUAGE CHANGES
@@ -328,6 +371,9 @@ class LeftPanel(QWidget):
         self.btn_add.setText(tr("add_queue"))
         self.auto_queue_cb.setText(tr("auto_queue"))
         self.shutdown_cb.setText(tr("shutdown_after_done"))
+        self.shutdown_delay.setToolTip(tr("shutdown_delay_hint"))
+        self.shutdown_delay_unit.setText(tr("shutdown_seconds"))
+        self.shutdown_delay_unit.setToolTip(tr("shutdown_delay_hint"))
         if hasattr(self, "rb_manual"):
             self.rb_manual.setText(tr("mode_manual"))
             self.rb_auto.setText(tr("mode_auto"))
