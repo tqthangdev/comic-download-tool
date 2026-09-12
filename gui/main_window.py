@@ -26,6 +26,18 @@ from core.auth import auth_manager
 
 class MainWindow(QWidget):
 
+    # DB stores lowercase statuses ("waiting", "paused", "running", "failed",
+    # "done", "done_with_missing"); the queue delegate expects the capitalized
+    # display labels below.
+    _RESTORE_STATUS_LABELS = {
+        "waiting": "Waiting",
+        "paused": "Paused",
+        "running": "Paused",
+        "failed": "Failed",
+        "done": "Done",
+        "done_with_missing": "Done with missing",
+    }
+
     def __init__(self, engine):
         super().__init__()
 
@@ -648,18 +660,10 @@ class MainWindow(QWidget):
             async for current, total, job in self.engine.restore_session(
                 base_path
             ):
-                status = getattr(job, "status", None)
-
-                if status == "done_with_missing":
-                    status = "Done with missing"
-
-                elif status not in (
-                    "Paused",
-                    "Waiting",
-                    "Done",
-                    "Failed",
-                ):
-                    status = "Paused" if job.current_chap else ""
+                status = self._RESTORE_STATUS_LABELS.get(
+                    (getattr(job, "status", None) or "").lower(),
+                    "Paused" if job.current_chap else "",
+                )
 
                 self.right.update_queue_item(
                     job.url,

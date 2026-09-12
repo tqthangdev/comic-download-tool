@@ -283,10 +283,13 @@ class JobManager:
 
     def get_restorable_jobs(self) -> list[Job]:
         with self._lock:
+            # Every job that is not fully finished ("done") must come back on
+            # the next launch — including "done_with_missing", "failed",
+            # "paused", "waiting" and "running".
             # ORDER BY rowid to preserve insertion order — restore into the queue
             # in the same order as the queue list.
             rows = self.conn.execute(
-                "SELECT * FROM jobs WHERE status IN ('waiting', 'paused', 'failed', 'running') ORDER BY rowid"
+                "SELECT * FROM jobs WHERE status IS NULL OR status != 'done' ORDER BY rowid"
             ).fetchall()
         return [
             Job(
