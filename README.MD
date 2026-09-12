@@ -62,6 +62,7 @@ Settings are stored in `data/config.json`, created automatically next to the app
 | `download_retry` / `chapter_retry` | Retries for failed downloads/chapters |
 | `request_timeout` | HTTP timeout in seconds |
 | `download_thumb` | Save thumbnail when downloading |
+| `download_genres` | Save genres to a `genres.txt` file when downloading |
 | `language` | UI language (`vi` or `en`) |
 | `user_agent` | Custom HTTP User-Agent |
 

@@ -515,6 +515,9 @@ class Engine(QObject):
         in the same directory as the thumbnail (job.save_path).
 
         data["genres"] is already normalized to list[str] by worker()."""
+        if not CONFIG.get("download_genres", True):
+            return
+
         names = self._normalize_genres(data.get("genres"))
         if not names:
             return

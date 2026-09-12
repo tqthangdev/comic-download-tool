@@ -85,6 +85,7 @@ TRANSLATIONS = {
         "save_thumb": "Lưu thumbnail khi tải",
         "thumb_yes": "Có",
         "thumb_no": "Không",
+        "save_genres": "Lưu genres khi tải",
         "save_error": "Không thể ghi config.json. Kiểm tra quyền thư mục.",
         # Settings fields (label, key, desc)
         "field_max_workers": "Số truyện tải song song (worker)",
@@ -99,6 +100,8 @@ TRANSLATIONS = {
         "field_timeout_desc": "Thời gian tối đa chờ trang web phản hồi trước khi báo lỗi.\n\nKhuyến nghị: 30. Quá thấp dễ báo lỗi khi mạng chậm, quá cao làm treo lâu khi trang không vào được.",
         "thumb_help_title": "Lưu thumbnail khi tải",
         "thumb_help_desc": "Có: lưu ảnh bìa (thumb.jpg) vào thư mục mỗi truyện khi tải.\n\nKhông: bỏ qua ảnh bìa, chỉ tải các chapter — tiết kiệm băng thông và 1 request ảnh mỗi truyện.\n\nKhuyến nghị: Có.",
+        "genres_help_title": "Lưu genres khi tải",
+        "genres_help_desc": "Có: lưu thể loại của truyện vào file genres.txt (cách nhau bằng dấu phẩy) trong thư mục mỗi truyện khi tải.\n\nKhông: bỏ qua, không tạo file genres.txt.\n\nKhuyến nghị: Có.",
         # Queue status
         "status_waiting": "Waiting",
         "status_paused": "Paused",
@@ -206,6 +209,7 @@ TRANSLATIONS = {
         "save_thumb": "Download thumbnail",
         "thumb_yes": "Yes",
         "thumb_no": "No",
+        "save_genres": "Download genres",
         "save_error": "Failed to write config.json. Check folder permissions.",
         # Settings fields
         "field_max_workers": "Parallel comics (workers)",
@@ -220,6 +224,8 @@ TRANSLATIONS = {
         "field_timeout_desc": "Maximum time to wait for a website response before showing an error.\n\nRecommended: 30. Too low errors out on slow networks, too high hangs for long when a page is unreachable.",
         "thumb_help_title": "Download thumbnail",
         "thumb_help_desc": "Yes: save the cover image (thumb.jpg) into each comic folder when downloading.\n\nNo: skip the cover, only download the chapters — saves bandwidth and one image request per comic.\n\nRecommended: Yes.",
+        "genres_help_title": "Download genres",
+        "genres_help_desc": "Yes: save the comic's genres to a genres.txt file (comma-separated) inside each comic folder when downloading.\n\nNo: skip it, no genres.txt is created.\n\nRecommended: Yes.",
         # Queue status
         "status_waiting": "Waiting",
         "status_paused": "Paused",

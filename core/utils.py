@@ -108,6 +108,7 @@ DEFAULT_CONFIG = {
     "chapter_retry": 2,
     "request_timeout": 30,
     "download_thumb": True,
+    "download_genres": True,
     "language": "en",
     "user_agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "

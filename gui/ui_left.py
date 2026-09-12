@@ -624,6 +624,39 @@ class _ConfigDialog(QDialog):
         thumb_layout.addWidget(btn_thumb_help)
         form.addRow(tr("save_thumb"), thumb_row)
 
+        # ===== RADIO: SAVE GENRES WHEN DOWNLOADING =====
+        genres_row = QWidget()
+        genres_row.setFixedHeight(26)
+
+        genres_layout = QHBoxLayout(genres_row)
+        genres_layout.setContentsMargins(0, 0, 0, 0)
+        genres_layout.setSpacing(4)
+
+        self.rb_genres_yes = make_radio_button(tr("thumb_yes"))
+        self.rb_genres_no = make_radio_button(tr("thumb_no"))
+        self._genres_group = QButtonGroup(self)
+        self._genres_group.addButton(self.rb_genres_yes)
+        self._genres_group.addButton(self.rb_genres_no)
+
+        download_genres = CONFIG.get("download_genres", True)
+        (self.rb_genres_yes if download_genres else self.rb_genres_no).setChecked(True)
+
+        genres_layout.addWidget(self.rb_genres_yes)
+        genres_layout.addSpacing(24)
+        genres_layout.addWidget(self.rb_genres_no)
+        genres_layout.addStretch()
+
+        btn_genres_help = self._make_help_button(
+            lambda _=False: _HelpDialog(
+                tr("genres_help_title"),
+                tr("genres_help_desc"),
+                self,
+            ).exec()
+        )
+
+        genres_layout.addWidget(btn_genres_help)
+        form.addRow(tr("save_genres"), genres_row)
+
         buttons = QDialogButtonBox()
         btn_apply = buttons.addButton(tr("apply"), QDialogButtonBox.ButtonRole.AcceptRole)
         btn_cancel = buttons.addButton(tr("cancel"), QDialogButtonBox.ButtonRole.RejectRole)
@@ -648,6 +681,7 @@ class _ConfigDialog(QDialog):
                     new_config[key] = text
 
         new_config["download_thumb"] = self.rb_thumb_yes.isChecked()
+        new_config["download_genres"] = self.rb_genres_yes.isChecked()
         new_config["language"] = self.cb_lang.currentData()
 
         if save_config(new_config):
