@@ -5,9 +5,24 @@ radio/checkbox indicators, dialogs, ...) doesn't have to be copy-pasted into
 every widget's stylesheet across the app.
 """
 
+from core.utils import get_resource_path
+
+# Qt resolves relative url(...) paths inside a stylesheet against the current
+# working directory, not the application directory. In a frozen build the
+# assets live under the bundle (_MEIPASS/assets) while the cwd can be anywhere,
+# so the indicator/spin/trash SVGs would silently fail to load. Resolve them to
+# the bundled assets directory instead of relying on the cwd.
+_ASSETS_DIR = get_resource_path("assets").as_posix()
+
+
+def _resolve_assets(style: str) -> str:
+    """Point every url("assets/...") at the absolute bundled assets path."""
+    return style.replace('"assets/', f'"{_ASSETS_DIR}/')
+
+
 # Thin, flat scrollbar matching the app's dark theme (#1e1e1e / #4a4a4a),
 # with a green highlight on hover to match the app's accent color (#4CAF50).
-SCROLLBAR_STYLE = """
+SCROLLBAR_STYLE = _resolve_assets("""
 QScrollBar:vertical {
     background: transparent;
     width: 12px;
@@ -38,12 +53,12 @@ QScrollBar::add-line:vertical:hover, QScrollBar::sub-line:vertical:hover {
     background: #4a4a4a;
 }
 QScrollBar::up-arrow:vertical {
-    image: url(assets/spin-up.svg);
+    image: url("assets/spin-up.svg");
     width: 8px;
     height: 5px;
 }
 QScrollBar::down-arrow:vertical {
-    image: url(assets/spin-down.svg);
+    image: url("assets/spin-down.svg");
     width: 8px;
     height: 5px;
 }
@@ -83,7 +98,7 @@ QScrollBar::add-line:horizontal:hover, QScrollBar::sub-line:horizontal:hover {
 QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {
     background: transparent;
 }
-"""
+""")
 
 # Base look applied to the main window: dark background, flat buttons and
 # input fields with a green focus ring.
@@ -124,7 +139,7 @@ QLineEdit:focus {
 """
 
 # Radio buttons with the app's custom indicator icons (checked/unchecked SVGs).
-RADIO_STYLE = """
+RADIO_STYLE = _resolve_assets("""
 QRadioButton::indicator {
     width: 14px;
     height: 14px;
@@ -135,21 +150,21 @@ QRadioButton::indicator:unchecked {
 QRadioButton::indicator:checked {
     image: url("assets/radio-checked.svg");
 }
-"""
+""")
 
 # Check boxes with the app's custom indicator icons (checked/unchecked SVGs).
-CHECKBOX_STYLE = """
+CHECKBOX_STYLE = _resolve_assets("""
 QCheckBox::indicator {
     width: 18px;
     height: 18px;
 }
 QCheckBox::indicator:unchecked {
-    image: url(assets/checkbox-unchecked.svg);
+    image: url("assets/checkbox-unchecked.svg");
 }
 QCheckBox::indicator:checked {
-    image: url(assets/checkbox-checked.svg);
+    image: url("assets/checkbox-checked.svg");
 }
-"""
+""")
 
 # Chapter tree in the left panel: transparent background + cyan item text.
 TREE_STYLE = """
@@ -214,7 +229,7 @@ QToolButton:hover {
 """
 
 # Input fields of the settings dialog (config.json editor).
-CONFIG_DIALOG_STYLE = """
+CONFIG_DIALOG_STYLE = _resolve_assets("""
 QLineEdit, QSpinBox, QComboBox {
     height: 16px;
     background-color: #1e1e1e;
@@ -253,20 +268,20 @@ QSpinBox::up-button:pressed, QSpinBox::down-button:pressed {
     background-color: #1e1e1e;
 }
 QSpinBox::up-arrow {
-    image: url(assets/spin-up.svg);
+    image: url("assets/spin-up.svg");
     width: 10px;
     height: 6px;
 }
 QSpinBox::up-arrow:pressed {
-    image: url(assets/spin-up-active.svg);
+    image: url("assets/spin-up-active.svg");
 }
 QSpinBox::down-arrow {
-    image: url(assets/spin-down.svg);
+    image: url("assets/spin-down.svg");
     width: 10px;
     height: 6px;
 }
 QSpinBox::down-arrow:pressed {
-    image: url(assets/spin-down-active.svg);
+    image: url("assets/spin-down-active.svg");
 }
 QComboBox::drop-down {
     subcontrol-origin: padding;
@@ -281,7 +296,7 @@ QComboBox::drop-down:hover {
     background-color: #1e1e1e;
 }
 QComboBox::down-arrow {
-    image: url(assets/spin-down.svg);
+    image: url("assets/spin-down.svg");
     width: 10px;
     height: 6px;
 }
@@ -293,7 +308,7 @@ QComboBox QAbstractItemView {
     selection-color: #1e1e1e;
     outline: none;
 }
-"""
+""")
 
 # Section titles: large (manga title, left panel) / small (help dialog).
 MANGA_TITLE_STYLE = "font-size:16px; font-weight:bold; color:#ff9800;"

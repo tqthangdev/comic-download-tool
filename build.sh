@@ -255,6 +255,25 @@ if [ ! -f "$PROJECT_DIR/dist/ComicDownloadTool/ComicDownloadTool" ]; then
     exit 1
 fi
 
+# The GUI stylesheets reference these indicator icons by absolute path, so
+# they must be present inside the bundle or the checkboxes/radio buttons
+# would silently render without their custom icons.
+ASSET_DIR="$INTERNAL_DIR/assets"
+
+for asset in \
+    checkbox-checked.svg \
+    checkbox-unchecked.svg \
+    radio-checked.svg \
+    radio-unchecked.svg; do
+
+    if [ ! -f "$ASSET_DIR/$asset" ]; then
+        echo "ERROR: Missing bundled asset: assets/$asset"
+        exit 1
+    fi
+done
+
+echo "OK: Indicator SVG assets bundled."
+
 # ==========================================
 # VERIFY PLAYWRIGHT
 # ==========================================

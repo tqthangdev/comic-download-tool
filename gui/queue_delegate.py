@@ -2,6 +2,8 @@ from PyQt6.QtWidgets import QStyledItemDelegate
 from PyQt6.QtGui import QColor, QFontMetrics, QPixmap
 from PyQt6.QtCore import Qt, QRect, QEvent, pyqtSignal
 
+from core.utils import get_resource_path
+
 
 class QueueDelegate(QStyledItemDelegate):
     # Emits the job url when the user clicks the trash icon,
@@ -21,7 +23,7 @@ class QueueDelegate(QStyledItemDelegate):
     def __init__(self, parent=None):
         super().__init__(parent)
 
-        self.trash_pixmap = QPixmap("assets/trash.svg")
+        self.trash_pixmap = QPixmap(str(get_resource_path("assets/trash.svg")))
 
         # `parent` must be the view (QListView/QListWidget/etc.) so we can
         # grab its viewport, enable mouse tracking, and install an event

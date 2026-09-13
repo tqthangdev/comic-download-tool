@@ -248,6 +248,24 @@ if (!(Test-Path $EXE)) {
     throw "Build failed: ComicDownloadTool.exe was not created."
 }
 
+# The GUI stylesheets reference these indicator icons by absolute path, so
+# they must be present inside the bundle or the checkboxes/radio buttons
+# would silently render without their custom icons.
+$ASSET_DIR = "dist\ComicDownloadTool\_internal\assets"
+
+foreach ($asset in @(
+    "checkbox-checked.svg",
+    "checkbox-unchecked.svg",
+    "radio-checked.svg",
+    "radio-unchecked.svg"
+)) {
+    if (!(Test-Path (Join-Path $ASSET_DIR $asset))) {
+        throw "Missing bundled asset: assets\$asset"
+    }
+}
+
+Write-Host "OK: Indicator SVG assets bundled."
+
 # ==========================================
 # CLEAN BUILD FILES
 # ==========================================

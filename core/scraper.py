@@ -363,16 +363,21 @@ def _is_same_story(url: str, base_url: str) -> bool:
     the in-page href uses decoded characters (屈服...) - normalize before the
     prefix check, otherwise real chapters get wrongly filtered out.
 
-    Some sites (e.g. cmangax18) use album URLs like /album/<slug>-<albumid>
-    while chapters live under /album/<slug>/... - so also try the base with the
-    trailing numeric segment stripped.
+    Story URLs differ across sites, so a few variants of the base are accepted:
+      * a trailing numeric segment: cmangax18 album URLs like /album/<slug>-<id>
+        while chapters live under /album/<slug>/...,
+      * a trailing file extension: sayhentai.cx story pages end in .html while
+        chapters live under the extension-less slug /truyen/<slug>/chuong-N.
     """
     url = unquote(url)
     base = unquote(base_url).rstrip("/")
-    if url.startswith(base + "/"):
-        return True
-    stripped = re.sub(r"-\d+$", "", base)
-    return bool(stripped) and stripped != base and url.startswith(stripped + "/")
+
+    variants = {base}
+    variants.add(re.sub(r"\.[a-z0-9]{2,6}$", "", base, flags=re.IGNORECASE))
+    for variant in list(variants):
+        variants.add(re.sub(r"-\d+$", "", variant))
+
+    return any(v and url.startswith(v + "/") for v in variants)
 
 
 NAV_BUTTON_TEXTS = {
@@ -654,13 +659,37 @@ BAD_IMG_CLASS_PARTS = (
 )
 BAD_IMG_URL_PARTS = (
     "logo", "icon", "avatar", "banner", "/ads/", "advert", "sponsor",
-    "placeholder", "emoji",
+    "placeholder", "emoji", "cover", "poster", "thumbnail", "/thumb",
 )
 # URL pattern suggesting content images (manga/comic CDN)
 GOOD_IMG_URL_PARTS = (
     "/manga-images/", "/images/data/", "/chapters/", "/chapter/", "/comics/",
     "/storage/chapter", "/content/images/",
 )
+# Images inside a comment/discussion widget are UI chrome, not manga pages.
+# (e.g. sayhentai's comment box reuses /img/chNN.gif stickers next to capoo/
+# qoobee emotes — enough of them to become the biggest same-directory group.)
+JUNK_CONTAINER_RE = re.compile(
+    r"(comment|binhluan|discussion|reply|emoji|smiley|smilie)",
+    re.IGNORECASE,
+)
+
+
+def _in_junk_container(img) -> bool:
+    """True if the image sits inside a comment/discussion widget or an
+    interactive control (emoji/sticker pickers are <button> elements)."""
+    for parent in img.parents:
+        name = getattr(parent, "name", None)
+        if name in (None, "[document]", "html", "body"):
+            break
+        if name == "button":
+            return True
+        ident = " ".join(
+            [parent.get("id") or ""] + (parent.get("class") or [])
+        )
+        if ident and JUNK_CONTAINER_RE.search(ident):
+            return True
+    return False
 
 
 def _img_src(img) -> str:
@@ -699,6 +728,9 @@ def find_chapter_images(html: str, base_url: str) -> list:
             continue
         url = urljoin(base_url, src)
 
+        # Drop comment/discussion widgets and emoji/sticker pickers (buttons)
+        if _in_junk_container(img):
+            continue
         # Drop junk images by class
         classes = " ".join(img.get("class") or []).lower()
         if any(part in classes for part in BAD_IMG_CLASS_PARTS):
