@@ -20,6 +20,24 @@ def _has_real_images(urls: List[str]) -> bool:
     )
 
 
+# Clicks every "load more" control tied to a chapter list, so a site that only
+# renders the newest slice of chapters (e.g. nettruyen's hidden "Xem thêm")
+# reveals the full list in the rendered DOM.
+_CLICK_LOAD_MORE_JS = """
+() => {
+    const rx = /(view|load|see)[-_]?more|xem[-_]?them|loadmore/i;
+    let clicked = 0;
+    for (const el of document.querySelectorAll('a, button, span, div')) {
+        const ident = (el.id || '') + ' ' + (el.className || '');
+        if (rx.test(ident)) {
+            try { el.click(); clicked++; } catch (e) {}
+        }
+    }
+    return clicked;
+}
+"""
+
+
 class Crawler:
     """Handles fetching HTML and extracting chapter images.
 
@@ -37,12 +55,20 @@ class Crawler:
         """Called by Engine to reuse a shared aiohttp session (avoids recreating one)."""
         self._http_session = session
 
-    async def _render_html(self, url: str, site_id: Optional[str] = None) -> str:
+    async def _render_html(
+        self,
+        url: str,
+        site_id: Optional[str] = None,
+        expand_chapters: bool = False,
+    ) -> str:
         """Render a URL with Playwright headless, returning the JS-executed HTML.
 
         If site_id is given, the authenticated cookies/headers from
         auth_manager are applied to the browser context before navigating,
         so JS-rendered pages that require login work too.
+
+        expand_chapters: click chapter 'load more' controls after load so a
+        partially rendered chapter list is expanded to the full one.
         """
         from playwright.async_api import async_playwright
 
@@ -67,17 +93,41 @@ class Crawler:
             page = await context.new_page()
             await page.goto(url, wait_until="networkidle", timeout=CONFIG["request_timeout"] * 1000)
             await page.wait_for_timeout(1500)
+            if expand_chapters:
+                await self._expand_chapters(page)
             html = await page.content()
             await page.close()
             return html
         finally:
             await browser.close()
 
+    async def _expand_chapters(self, page):
+        """Click chapter 'load more' controls until they stop growing the DOM."""
+        count_js = "document.querySelectorAll('a').length"
+        try:
+            previous = await page.evaluate(count_js)
+        except Exception:
+            previous = 0
+        for _ in range(6):
+            clicked = await page.evaluate(_CLICK_LOAD_MORE_JS)
+            if not clicked:
+                break
+            await page.wait_for_timeout(2000)
+            try:
+                current = await page.evaluate(count_js)
+            except Exception:
+                break
+            if current <= previous:
+                break
+            previous = current
+
     async def get_chapters(self, url: str, retries: int = None, site_id: Optional[str] = None):
         """Fetch title/thumb/referer/chapters via scraper.py (requests).
 
-        If requests finds no chapters (JS-rendered page), fall back to
-        Playwright headless rendering and scrape again on the rendered HTML.
+        If requests finds no chapters (JS-rendered page) OR finds only a slice
+        of them (a 'load more' chapter control is present), fall back to
+        Playwright headless rendering (expanding the chapter list) and scrape
+        again on the rendered HTML.
 
         site_id: pass through to both the requests-based scrape() call and
         the Playwright fallback so login cookies/headers are applied either
@@ -98,15 +148,24 @@ class Crawler:
         for attempt in range(retries + 1):
             try:
                 data = await loop.run_in_executor(None, scrape_call)
-                if data.get("chapters"):
+                chapters = data.get("chapters") or []
+
+                # Complete list already: nothing to render.
+                if chapters and not data.get("has_more_chapters"):
                     return data
-                # JS-rendered site: retry with Playwright
-                html = await self._render_html(url, site_id=site_id)
+
+                # No chapters (JS-rendered) or a truncated list behind a
+                # "load more" control -> render and scrape the expanded DOM.
+                html = await self._render_html(
+                    url, site_id=site_id, expand_chapters=True
+                )
                 rendered = await loop.run_in_executor(None, scrape_from_html, html, url)
-                if rendered.get("chapters"):
-                    rendered.setdefault("referer", data.get("referer") or "")
-                    return rendered
-                return data
+                rendered_chapters = rendered.get("chapters") or []
+
+                best = rendered if len(rendered_chapters) > len(chapters) else data
+                if best.get("chapters"):
+                    best.setdefault("referer", data.get("referer") or "")
+                return best
             except Exception as e:
                 last_error = e
                 logger.error(f"[get_chapters] Attempt {attempt + 1} failed: {e}")

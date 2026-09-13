@@ -385,6 +385,35 @@ NAV_BUTTON_TEXTS = {
     "read first", "read latest", "first", "latest", "read now", "read",
 }
 
+# A "load more" control attached to the chapter list. Some sites render only
+# the newest slice of chapters in the HTML (e.g. nettruyen shows the last 20)
+# and fetch the rest on click of a hidden "Xem thêm" button.
+CHAPTER_MORE_CLASS_RE = re.compile(
+    r"(view|load|see)[-_]?more|xem[-_]?them|loadmore", re.IGNORECASE
+)
+
+
+def has_chapter_load_more(soup: BeautifulSoup) -> bool:
+    """True when the chapter list is only a slice of the full list, i.e. the
+    page has a 'load more' control tied to a chapter container."""
+    for el in soup.find_all(True):
+        ident = " ".join([el.get("id") or ""] + (el.get("class") or []))
+        if not ident or not CHAPTER_MORE_CLASS_RE.search(ident):
+            continue
+        parent = el
+        for _ in range(6):
+            parent = parent.parent
+            if parent is None or getattr(parent, "name", None) in (
+                None, "[document]", "html", "body",
+            ):
+                break
+            parent_ident = " ".join(
+                [parent.get("id") or ""] + (parent.get("class") or [])
+            )
+            if "chapter" in parent_ident.lower():
+                return True
+    return False
+
 
 def _chapter_text(a) -> str:
     """Extract the 'chapter name' text from inside an <a>: prefer a child that
@@ -600,6 +629,8 @@ def _extract_from_soup(soup: BeautifulSoup, base_url: str, debug: bool = False) 
     contract the app consumes (engine + GUI):
         {"title", "thumb", "referer", "chapters": [{"title", "url", "update_time"}], "genres": [{"name", "slug", "url"}]}
     update_time is always a string (None -> "").
+    has_more_chapters flags a chapter list that is only a slice of the full one
+    (a 'load more' control is present), so the crawler can expand it.
     """
     thumb = find_thumb(soup, base_url)
     title = find_title(soup, thumb["element"])
@@ -611,6 +642,7 @@ def _extract_from_soup(soup: BeautifulSoup, base_url: str, debug: bool = False) 
         "thumb": thumb["url"],
         "referer": get_referer(base_url),
         "genres": genres,
+        "has_more_chapters": has_chapter_load_more(soup),
         "chapters": [
             {
                 "title": c["name"],
