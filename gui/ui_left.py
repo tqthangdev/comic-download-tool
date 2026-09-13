@@ -39,6 +39,12 @@ from gui.theme import (
     COMPACT_INPUT_STYLE,
 )
 
+# Shared width for the small buttons on the right of each input row
+# (Paste / Folder / Settings / About). Keeping them equal keeps the rows
+# aligned; the width must fit the longest label ("Giới thiệu").
+SIDE_BUTTON_WIDTH = 90
+
+
 def make_radio_button(text: str) -> QRadioButton:
     """Create a QRadioButton with the app's custom indicator icons
     (checked/unchecked SVGs) applied, so every radio button in the app
@@ -119,7 +125,7 @@ class LeftPanel(QWidget):
         self.url_input.setFixedHeight(29)
 
         self.btn_paste = QPushButton(tr("paste"))
-        self.btn_paste.setFixedWidth(80)
+        self.btn_paste.setFixedWidth(SIDE_BUTTON_WIDTH)
 
         manual_layout.addWidget(self.url_input, 1)
         manual_layout.addWidget(self.btn_paste)
@@ -139,7 +145,7 @@ class LeftPanel(QWidget):
         self.file_input.mousePressEvent = self._pick_file_for_event
 
         self.btn_pick_file = QPushButton(tr("file_pick"))
-        self.btn_pick_file.setFixedWidth(80)
+        self.btn_pick_file.setFixedWidth(SIDE_BUTTON_WIDTH)
 
         auto_layout.addWidget(self.file_input, 1)
         auto_layout.addWidget(self.btn_pick_file)
@@ -195,7 +201,7 @@ class LeftPanel(QWidget):
         checkbox_col.addWidget(self.auto_queue_cb, 0, Qt.AlignmentFlag.AlignLeft)
 
         self.btn_settings = QPushButton(tr("settings"))
-        self.btn_settings.setFixedWidth(80)
+        self.btn_settings.setFixedWidth(SIDE_BUTTON_WIDTH)
         self.btn_settings.clicked.connect(self.open_settings)
 
         settings_layout.addLayout(checkbox_col, 1)
@@ -207,7 +213,7 @@ class LeftPanel(QWidget):
         path_layout = QHBoxLayout(path_area)
 
         self.btn_folder = QPushButton(tr("folder"))
-        self.btn_folder.setFixedWidth(80)
+        self.btn_folder.setFixedWidth(SIDE_BUTTON_WIDTH)
 
         path_layout.setContentsMargins(0, 0, 0, 0)
         path_layout.setSpacing(6)
@@ -246,9 +252,12 @@ class LeftPanel(QWidget):
             QHeaderView.ResizeMode.ResizeToContents,
         )
 
-        # ================= ADD QUEUE BUTTON =================
+        # ================= ADD QUEUE / ABOUT BUTTONS =================
         self.btn_add = QPushButton(tr("add_queue"))
         self.btn_add.setDisabled(True)
+
+        self.btn_about = QPushButton(tr("about"))
+        self.btn_about.setFixedWidth(SIDE_BUTTON_WIDTH)
 
         # ================= HEADER PANEL =================
         self.chapter_header = QWidget()
@@ -309,12 +318,24 @@ class LeftPanel(QWidget):
         layout.addWidget(self.input_stack, 0)
         layout.addWidget(path_area, 0)
         layout.addWidget(settings_row, 0)
-        layout.addWidget(self.btn_add, 0)
+
+        # Add Queue + About share one row. Add Queue stretches, so its width
+        # matches the path text box (which also stretches next to the 80px
+        # Folder button); About is 80px like Paste/Folder/Settings.
+        add_row = QWidget()
+        add_row_layout = QHBoxLayout(add_row)
+        add_row_layout.setContentsMargins(0, 0, 0, 0)
+        add_row_layout.setSpacing(6)
+        add_row_layout.addWidget(self.btn_add, 1)
+        add_row_layout.addWidget(self.btn_about)
+        layout.addWidget(add_row, 0)
+
         layout.addWidget(self.detail_chapter, 1)
 
         # events that only affect this panel's own widgets
         self.btn_folder.clicked.connect(self.pick_folder)
         self.btn_pick_file.clicked.connect(self.pick_file)
+        self.btn_about.clicked.connect(self.open_about)
         self.url_input.textChanged.connect(lambda _=None: self._update_add_button())
         self.file_input.textChanged.connect(lambda _=None: self._update_add_button())
         self._on_mode_changed(self.rb_manual.isChecked())
@@ -369,6 +390,7 @@ class LeftPanel(QWidget):
         self.btn_folder.setText(tr("folder"))
         self.btn_settings.setText(tr("settings"))
         self.btn_add.setText(tr("add_queue"))
+        self.btn_about.setText(tr("about"))
         self.auto_queue_cb.setText(tr("auto_queue"))
         self.shutdown_cb.setText(tr("shutdown_after_done"))
         self.shutdown_delay.setToolTip(tr("shutdown_delay_hint"))
@@ -383,6 +405,13 @@ class LeftPanel(QWidget):
     # =========================
     def open_settings(self):
         dialog = _ConfigDialog(self)
+        dialog.exec()
+
+    # =========================
+    # ABOUT MODAL
+    # =========================
+    def open_about(self):
+        dialog = _AboutDialog(self)
         dialog.exec()
 
     # =========================
@@ -716,6 +745,38 @@ class _HelpDialog(QDialog):
         title_label.setWordWrap(True)
 
         desc_label = QLabel(description)
+        desc_label.setWordWrap(True)
+        desc_label.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
+
+        buttons = QDialogButtonBox()
+        btn_ok = buttons.addButton(tr("ok"), QDialogButtonBox.ButtonRole.AcceptRole)
+        btn_ok.clicked.connect(self.accept)
+
+        layout.addWidget(title_label)
+        layout.addWidget(desc_label)
+        layout.addWidget(buttons)
+
+        apply_pointer_cursors(self)
+
+
+class _AboutDialog(QDialog):
+    """Modal showing basic information about the app."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(tr("about_title"))
+        self.setModal(True)
+        self.setMinimumWidth(400)
+
+        layout = QVBoxLayout(self)
+
+        title_label = QLabel(tr("app_title"))
+        title_label.setStyleSheet(HELP_TITLE_STYLE)
+        title_label.setWordWrap(True)
+
+        desc_label = QLabel(tr("about_desc"))
         desc_label.setWordWrap(True)
         desc_label.setTextInteractionFlags(
             Qt.TextInteractionFlag.TextSelectableByMouse
