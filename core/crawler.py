@@ -213,3 +213,7 @@ class Crawler:
             except Exception as e:
                 logger.error(f"[close] Failed to stop Playwright: {e}")
             self._pw = None
+
+        from core import cuutruyen
+
+        await cuutruyen.close_renderer()

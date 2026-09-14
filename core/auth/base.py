@@ -50,6 +50,10 @@ class AuthHandler(ABC):
     # Used by AuthManager.site_id_for_url() to auto-detect which site a
     # pasted URL belongs to, without the GUI needing a manual site picker.
     domains: tuple[str, ...] = ()
+    # Names of the request headers that carry the session's auth (set by the
+    # handler). AuthManager.get_headers() forwards exactly these to aiohttp /
+    # Playwright so a logged-in session is replayed by other clients.
+    auth_header_names: tuple[str, ...] = ()
 
     def build_session(self) -> requests.Session:
         """Create a default session. Override for special headers/proxy."""

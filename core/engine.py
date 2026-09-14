@@ -6,6 +6,7 @@ from PyQt6.QtCore import QObject, pyqtSignal
 
 from core.crawler import Crawler
 from core.downloader import Downloader, CONTENT_TYPE_EXT
+from core import cuutruyen
 from core.job_manager import Job, JobManager
 from core.logger import logger
 from core.scraper import get_referer
@@ -414,9 +415,18 @@ class Engine(QObject):
             job.current_chap = chap_index
             await self.db.aupdate_current_chap(job.url, chap_index)
 
-            imgs = await self._extract_images_with_retry(
-                chap["url"], site_id=job.site_id
-            )
+            # cuutruyen pages are DRM-scrambled: fetch the page metadata (the
+            # images themselves are rendered through the site's wasm module).
+            use_cuutruyen = cuutruyen.is_cuutruyen_url(chap["url"])
+            if use_cuutruyen:
+                loop = asyncio.get_running_loop()
+                imgs = await loop.run_in_executor(
+                    None, cuutruyen.fetch_pages, chap["url"]
+                )
+            else:
+                imgs = await self._extract_images_with_retry(
+                    chap["url"], site_id=job.site_id
+                )
 
             chap_folder_name = f"{chap_index:04d} - {safe_filename(chap['title'])}"
             chap_path = job.save_path / chap_folder_name
@@ -453,10 +463,15 @@ class Engine(QObject):
                     f"Downloading...({chap_index}/{total_chap}): {chap_percent:.0f}%",
                 )
 
-            failed_urls, missing_urls = await self.downloader.download_batch(
-                imgs, chap_path, referer=referer, progress=progress_callback,
-                site_id=job.site_id,
-            )
+            if use_cuutruyen:
+                failed_urls, missing_urls = await cuutruyen.render_pages(
+                    imgs, chap_path, progress_callback
+                )
+            else:
+                failed_urls, missing_urls = await self.downloader.download_batch(
+                    imgs, chap_path, referer=referer, progress=progress_callback,
+                    site_id=job.site_id,
+                )
 
             if failed_urls:
                 has_failed = True

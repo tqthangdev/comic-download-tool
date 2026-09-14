@@ -47,16 +47,27 @@ class SessionStore:
         except (json.JSONDecodeError, OSError):
             return None
 
-    def restore_session(self, site_id: str, base_session: requests.Session) -> Optional[requests.Session]:
+    def restore_session(
+        self,
+        site_id: str,
+        base_session: requests.Session,
+        header_names: tuple = (),
+    ) -> Optional[requests.Session]:
         """
-        Restore saved cookies into a fresh session (already carrying default
-        headers from AuthHandler.build_session()). Returns None if no data.
+        Restore saved cookies (and the given auth headers, needed by sites whose
+        session lives in a token header rather than a cookie) into a fresh
+        session. Returns None if no data.
         """
         data = self.load(site_id)
         if not data:
             return None
         cookies = requests.utils.cookiejar_from_dict(data.get("cookies", {}))
         base_session.cookies.update(cookies)
+        saved_headers = data.get("headers", {})
+        for name in header_names or ():
+            value = saved_headers.get(name)
+            if value:
+                base_session.headers[name] = value
         return base_session
 
     def delete(self, site_id: str) -> None:

@@ -97,7 +97,11 @@ class AuthManager:
         session = handler.build_session()
 
         if auto_restore:
-            restored = self._store.restore_session(site_id, session)
+            restored = self._store.restore_session(
+                site_id,
+                session,
+                header_names=getattr(handler, "auth_header_names", ()) or (),
+            )
 
             if restored is not None and handler.is_logged_in(restored):
                 self._sessions[site_id] = restored
@@ -138,14 +142,12 @@ class AuthManager:
         return requests.utils.dict_from_cookiejar(session.cookies)
 
     def get_headers(self, site_id: str) -> dict:
-        """Return auth-related headers of the current session."""
+        """Return the session's auth headers so other clients can replay them."""
+        handler = self._handler_for(site_id)
         session = self.get_session(site_id)
 
-        keys = (
-            "Authorization",
-            "X-Auth-Token",
-            "X-API-Key",
-        )
+        keys = {"Authorization", "X-Auth-Token", "X-API-Key"}
+        keys.update(getattr(handler, "auth_header_names", ()) or ())
 
         return {
             k: session.headers[k]

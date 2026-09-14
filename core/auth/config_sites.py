@@ -93,6 +93,25 @@ class ConfigSiteAuth(AuthHandler):
         self.token_header = cfg.get("token_header") or "Authorization"
         self.token_prefix = cfg.get("token_prefix") or "Bearer "
 
+        # type=json alternative for sites that need SEVERAL auth headers taken
+        # from the login response, e.g. {"m4u_token": "auth_token",
+        # "m4u_uid": "data.id"} (value = dotted path into the JSON response).
+        self.token_headers = {
+            str(k): str(v) for k, v in (cfg.get("token_headers") or {}).items()
+        }
+        # Static headers applied to every request of the session (e.g. a client
+        # identifier the site requires: {"cuutruyen-client": "OfficialWebApp-..."}).
+        self.extra_headers = {
+            str(k): str(v) for k, v in (cfg.get("extra_headers") or {}).items()
+        }
+
+        # Headers that carry auth/identity, so AuthManager.get_headers() can
+        # replay the session in aiohttp/Playwright.
+        names = list(self.token_headers) + list(self.extra_headers)
+        if self.auth_type == "json" and not self.token_headers:
+            names.append(self.token_header)
+        self.auth_header_names = tuple(dict.fromkeys(names))
+
         # The status returned by check_url that counts as logged in.
         self.check_ok_status = cfg.get("check_ok_status", 200)
 
@@ -105,6 +124,8 @@ class ConfigSiteAuth(AuthHandler):
         session = super().build_session()
         # Apply verify to every request of this session.
         session.verify = self.verify_ssl
+        if self.extra_headers:
+            session.headers.update(self.extra_headers)
         return session
 
     # ---- login ----------------------------------------------------------
@@ -175,12 +196,29 @@ class ConfigSiteAuth(AuthHandler):
             payload[k] = v.replace("{username}", username) if isinstance(v, str) else v
 
         resp = session.post(self.login_url, json=payload, timeout=15)
-        if resp.status_code != 200:
+        if not (200 <= resp.status_code < 300):
             raise AuthError(
                 tr("auth_login_failed_status").format(self.site_id, resp.status_code)
             )
 
         data = resp.json()
+
+        # Multi-header login (e.g. cuutruyen sends both m4u_token and m4u_uid).
+        if self.token_headers:
+            headers = {}
+            for header_name, path in self.token_headers.items():
+                value = self._get_path(data, path)
+                if value is None:
+                    raise AuthError(tr("auth_login_no_token").format(self.site_id))
+                headers[header_name] = str(value)
+            session.headers.update(headers)
+            return AuthResult(
+                session=session,
+                site_id=self.site_id,
+                username=username,
+                extra={"headers": headers},
+            )
+
         token = self._get_token(data)
         if not token:
             raise AuthError(tr("auth_login_no_token").format(self.site_id))
@@ -230,15 +268,20 @@ class ConfigSiteAuth(AuthHandler):
 
     # ---- helpers --------------------------------------------------------
 
-    def _get_token(self, data) -> Optional[str]:
-        """Get a token by token_path (supports dotted path: a.b.c)."""
+    def _get_path(self, data, path: str):
+        """Read a (possibly dotted) value from the login response: a.b.c."""
         cur = data
-        for part in self.token_path.split("."):
+        for part in str(path).split("."):
             if isinstance(cur, dict) and part in cur:
                 cur = cur[part]
             else:
                 return None
-        return cur if isinstance(cur, str) else None
+        return cur
+
+    def _get_token(self, data) -> Optional[str]:
+        """Get a token by token_path (supports dotted path: a.b.c)."""
+        value = self._get_path(data, self.token_path)
+        return value if isinstance(value, str) else None
 
     @staticmethod
     def _extract_csrf(html: str) -> Optional[str]:

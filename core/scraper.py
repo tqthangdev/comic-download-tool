@@ -669,12 +669,94 @@ def scrape_from_html(html: str, url: str, debug: bool = False) -> dict:
     return _extract_from_soup(soup, url, debug)
 
 
+CUUTRUYEN_HOST = "cuutruyen.net"
+CUUTRUYEN_API = "https://cuutruyen.net/api/v2"
+# The API returns media on storage-<x>.lrclib.net, but some of those hosts are
+# dead (e.g. storage-ct.lrclib.net no longer resolves). The SPA rewrites them to
+# a live mirror, so do the same here.
+CUUTRUYEN_MEDIA_HOST = "storage-bravo.cuutruyen.net"
+
+
+def _cuutruyen_media(url: str) -> str:
+    """Point an API media URL at the live cuutruyen CDN mirror."""
+    if not url:
+        return url
+    parsed = urlparse(url)
+    if parsed.netloc.endswith("lrclib.net"):
+        return parsed._replace(netloc=CUUTRUYEN_MEDIA_HOST).geturl()
+    return url
+
+
+def _scrape_cuutruyen(
+    url: str,
+    cookies: dict = None,
+    extra_headers: dict = None,
+    debug: bool = False,
+) -> dict:
+    """cuutruyen.net is a Vue SPA whose UI is gated behind a login wall, but the
+    site exposes a public JSON API. Build the app contract straight from it:
+    /api/v2/mangas/<id> for metadata and /api/v2/mangas/<id>/chapters for the
+    chapter list (SPA pages cannot be scraped from HTML)."""
+    match = re.search(r"/mangas/(\d+)", url)
+    if not match:
+        raise ValueError(f"Cannot parse a cuutruyen manga id from URL: {url}")
+    manga_id = match.group(1)
+
+    headers = dict(HEADERS)
+    if extra_headers:
+        headers.update(extra_headers)
+
+    info = requests.get(
+        f"{CUUTRUYEN_API}/mangas/{manga_id}",
+        headers=headers, cookies=cookies, timeout=15,
+    )
+    info.raise_for_status()
+    manga = info.json().get("data") or {}
+
+    listing = requests.get(
+        f"{CUUTRUYEN_API}/mangas/{manga_id}/chapters",
+        headers=headers, cookies=cookies, timeout=15,
+    )
+    listing.raise_for_status()
+    items = listing.json().get("data") or []
+
+    chapters = []
+    for ch in items:
+        chapters.append({
+            "title": ch.get("number") or ch.get("name") or "",
+            "url": f"https://{CUUTRUYEN_HOST}/mangas/{manga_id}/chapters/{ch.get('id')}",
+            "update_time": (ch.get("updated_at") or "")[:10],
+        })
+
+    genres = [
+        {"name": t.get("name") or "", "slug": t.get("slug") or "", "url": ""}
+        for t in (manga.get("tags") or [])
+    ]
+
+    if debug:
+        print(f"[debug] cuutruyen manga {manga_id}: {len(chapters)} chapters", file=sys.stderr)
+
+    return {
+        "title": manga.get("name") or "",
+        "thumb": _cuutruyen_media(manga.get("cover_url") or ""),
+        "referer": f"https://{CUUTRUYEN_HOST}",
+        "genres": genres,
+        "has_more_chapters": False,
+        "chapters": chapters,
+    }
+
+
 def scrape(
     url: str,
     debug: bool = False,
     cookies: dict = None,
     extra_headers: dict = None,
 ) -> dict:
+    host = urlparse(url).netloc.lower()
+    if host == CUUTRUYEN_HOST or host.endswith("." + CUUTRUYEN_HOST):
+        return _scrape_cuutruyen(
+            url, cookies=cookies, extra_headers=extra_headers, debug=debug
+        )
     return _extract_from_soup(
         fetch_soup(url, cookies=cookies, extra_headers=extra_headers), url, debug
     )
