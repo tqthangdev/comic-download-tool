@@ -1,0 +1,19 @@
+{
+  "_comment": "Sample file. Declare sites requiring login here instead of writing a .py file per site. Each key is a site_id and AuthManager loads this file on auto_register(). Common fields: domains, login_url, check_url, username_field, password_field, extra_form (dict sent along in the login body), csrf (bool, true auto-detects input _token/_csrf...), verify_ssl (bool, default true), type (form|json|basic, default form). For type=json: token_path + token_header + token_prefix (single token) OR token_headers (dict header_name -> dotted path in the response) for sites needing several auth headers. extra_headers sets static headers on every request. If a site needs special logic, still create a .py file under core/auth/sites/ (it takes precedence over config).",
+
+  "cuutruyen": {
+    "type": "json",
+    "domains": ["cuutruyen.net"],
+    "login_url": "https://cuutruyen.net/api/v2/login",
+    "check_url": "https://cuutruyen.net/api/v2/user",
+    "username_field": "username",
+    "password_field": "password",
+    "token_headers": {
+      "m4u_token": "auth_token",
+      "m4u_uid": "data.id"
+    },
+    "extra_headers": {
+      "cuutruyen-client": "OfficialWebApp-20250805"
+    }
+  }
+}
