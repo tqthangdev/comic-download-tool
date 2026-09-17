@@ -3,7 +3,12 @@ from functools import partial
 from typing import List, Optional
 from urllib.parse import urlparse
 
-from core.scraper import scrape, scrape_from_html, find_chapter_images
+from core.scraper import (
+    scrape,
+    scrape_from_html,
+    find_chapter_images,
+    BotProtectionError,
+)
 from core.utils import resolve_ddg_proxy, CONFIG
 from core.logger import logger
 from core.auth import auth_manager
@@ -166,6 +171,10 @@ class Crawler:
                 if best.get("chapters"):
                     best.setdefault("referer", data.get("referer") or "")
                 return best
+            except BotProtectionError:
+                # The site refuses plain HTTP clients outright; retrying or
+                # rendering will not help, so surface it immediately.
+                raise
             except Exception as e:
                 last_error = e
                 logger.error(f"[get_chapters] Attempt {attempt + 1} failed: {e}")

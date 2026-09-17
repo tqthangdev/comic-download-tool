@@ -35,6 +35,45 @@ HEADERS = {
     "Accept-Language": "vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7",
 }
 
+
+class BotProtectionError(Exception):
+    """The site is behind a bot wall (Cloudflare) that refuses plain HTTP
+    clients, so its pages cannot be scraped at all."""
+
+    def __init__(self, url: str = ""):
+        super().__init__(f"Blocked by Cloudflare bot protection: {url}")
+        self.url = url
+
+
+# A bot wall answers with 403/503 and either Cloudflare's challenge interstitial
+# or its "blocked" page. These markers separate that from an ordinary 403 so the
+# app can tell the user the site is unsupported instead of showing a generic
+# network error.
+BOT_WALL_STATUSES = (403, 503)
+BOT_WALL_BODY_MARKERS = (
+    "cf_chl_opt",
+    "cf-chl-",
+    "just a moment",
+    "chờ một chút",
+    "attention required",
+    "enable javascript and cookies to continue",
+)
+
+
+def _looks_like_bot_wall(resp) -> bool:
+    if resp.status_code not in BOT_WALL_STATUSES:
+        return False
+    if "cloudflare" in (resp.headers.get("Server") or "").lower():
+        return True
+    if resp.headers.get("cf-mitigated"):
+        return True
+    try:
+        body = resp.text[:8000].lower()
+    except Exception:
+        return False
+    return any(marker in body for marker in BOT_WALL_BODY_MARKERS)
+
+
 CHAPTER_REGEX = re.compile(r"\b(chapter|chương|chuong|chap|ch\.?)\s*[:\-]?\s*\d+(\.\d+)?", re.IGNORECASE)
 # Some sites (e.g. cmangax18) navigate chapters via onclick instead of <a href>
 ONCLICK_URL_RE = re.compile(r"location\.href\s*=\s*['\"]([^'\"]+)['\"]", re.IGNORECASE)
@@ -76,6 +115,8 @@ def fetch_soup(
     if extra_headers:
         headers.update(extra_headers)
     resp = requests.get(url, headers=headers, cookies=cookies, timeout=timeout)
+    if _looks_like_bot_wall(resp):
+        raise BotProtectionError(url)
     resp.raise_for_status()
     resp.encoding = resp.apparent_encoding or resp.encoding
     return BeautifulSoup(resp.text, "lxml")

@@ -30,6 +30,7 @@ TRANSLATIONS = {
         # Notifications
         "no_chapters": "Không tìm thấy chapter nào cho truyện này.",
         "network_error": "Không thể tải trang, vui lòng kiểm tra mạng",
+        "bot_protected": "Link này hiện chưa được hỗ trợ.\n\nWebsite đang dùng Cloudflare để chặn bot nên không thể lấy nội dung.\nSẽ được khắc phục trong tương lai.",
         "extractor_error": "Không hỗ trợ website này",
         "load_chapters_error": "Không thể tải danh sách chapter",
         "clipboard_invalid": "Clipboard không chứa link hợp lệ",
@@ -157,6 +158,7 @@ TRANSLATIONS = {
         # Notifications
         "no_chapters": "No chapters found for this comic.",
         "network_error": "Failed to load page, please check your network",
+        "bot_protected": "This link is not supported yet.\n\nThe site uses Cloudflare bot protection, so its content cannot be loaded.\nThis will be fixed in the future.",
         "extractor_error": "This website is not supported",
         "load_chapters_error": "Failed to load chapter list",
         "clipboard_invalid": "Clipboard does not contain a valid URL",

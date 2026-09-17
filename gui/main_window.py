@@ -22,6 +22,7 @@ from gui.theme import MAIN_WINDOW_STYLE
 from core.logger import logger
 from core.i18n import tr, add_listener
 from core.auth import auth_manager
+from core.scraper import BotProtectionError
 
 
 class MainWindow(QWidget):
@@ -311,7 +312,13 @@ class MainWindow(QWidget):
 
             # Timeout/network error from scraper.py (requests) — page could not load
             # (the no-chapters case is handled separately by get_chapters).
-            if isinstance(e, (TimeoutError, requests.RequestException)):
+            if isinstance(e, BotProtectionError):
+                self._show_message(
+                    tr("error"),
+                    f"{tr('bot_protected')}\n\n{url}",
+                    critical=True
+                )
+            elif isinstance(e, (TimeoutError, requests.RequestException)):
                 self._show_message(
                     tr("error"),
                     f"{tr('network_error')}:\n{url}",
