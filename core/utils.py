@@ -114,6 +114,11 @@ DEFAULT_CONFIG = {
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
         "AppleWebKit/537.36 Chrome/120 Safari/537.36"
     ),
+    "stealth_enabled": True,
+    "stealth_headless": False,
+    "stealth_timeout": 45,
+    "stealth_browser_path": "",
+    "stealth_hide_window": True,
 }
 
 

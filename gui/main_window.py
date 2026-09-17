@@ -263,11 +263,20 @@ class MainWindow(QWidget):
                     "User-Agent": CONFIG["user_agent"],
                     "Referer": data.get("referer") or "",
                 }
-                cookies = auth_manager.get_cookies(site_id) if site_id else None
+                cookies = dict(auth_manager.get_cookies(site_id) or {}) if site_id else {}
                 if site_id:
                     headers.update(auth_manager.get_headers(site_id))
+
+                # A bot-walled host serves the cover only with the challenge
+                # clearance the stealth browser earned (UA + cookies).
+                from core import stealth
+                clearance_headers = stealth.headers_for(thumb)
+                if clearance_headers:
+                    headers.update(clearance_headers)
+                    cookies.update(stealth.cookies_for(thumb))
+
                 resp = await asyncio.to_thread(
-                    requests.get, thumb, headers=headers, cookies=cookies, timeout=5
+                    requests.get, thumb, headers=headers, cookies=cookies or None, timeout=5
                 )
                 img = resp.content
 
@@ -977,6 +986,12 @@ class MainWindow(QWidget):
             logger.exception("Failed to prepare shutdown")
 
         finally:
+            try:
+                from core import stealth
+                await stealth.shutdown()
+            except Exception:
+                logger.exception("Failed to shut down stealth browser")
+
             self._closing = True
             self.close()
 
@@ -988,5 +1003,11 @@ class MainWindow(QWidget):
             logger.exception("Failed to stop engine")
 
         finally:
+            try:
+                from core import stealth
+                await stealth.shutdown()
+            except Exception:
+                logger.exception("Failed to shut down stealth browser")
+
             self._closing = True
             self.close()

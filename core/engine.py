@@ -598,6 +598,9 @@ class Engine(QObject):
             self.progress.emit(job.title, "Done with missing images")
             return
         await self.db.aupdate_status(job.url, "done")
+        # Nothing left to resume on a finished job: clear the resume point so
+        # re-adding the story later runs a full pass from chapter 1 again
+        # (verify_chapter then re-downloads any chapter the user deleted).
         await self.db.areset_current_chap(job.url)
         logger.info(f"DONE: {job.title}")
         self.progress.emit(job.title, "Done")

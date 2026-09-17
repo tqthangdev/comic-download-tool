@@ -78,7 +78,9 @@ CHAPTER_REGEX = re.compile(r"\b(chapter|chương|chuong|chap|ch\.?)\s*[:\-]?\s*\
 # Some sites (e.g. cmangax18) navigate chapters via onclick instead of <a href>
 ONCLICK_URL_RE = re.compile(r"location\.href\s*=\s*['\"]([^'\"]+)['\"]", re.IGNORECASE)
 DATE_REGEX = re.compile(
-    r"(\d{1,2}[/\-.]\d{1,2}([/\-.]\d{2,4})?)"
+    # The trailing lookahead keeps count-like labels ("24.7k", "1.2m", "566k")
+    # from being read as a numeric date ("24.7").
+    r"(\d{1,2}[/\-.]\d{1,2}([/\-.]\d{2,4})?(?![a-z0-9]))"
     r"|(\d+\s?(phút|giờ|ngày|tuần|tháng|năm)\s?trước)"
     r"|(\d+\s?(min|hour|day|week|month|year)s?\s?ago)"
     r"|(hôm nay|hôm qua|vừa xong|today|yesterday|just now)"
@@ -95,11 +97,16 @@ SKIP_TAGS = {"script", "style", "head", "noscript", "template", "svg"}
 # ----------------------------------------------------------------------
 
 def get_referer(url: str) -> str:
-    """Get the referer (origin) from a URL, e.g. https://example.com/a/b -> https://example.com"""
+    """Get the referer (site origin) from a URL, e.g. https://example.com/a/b -> https://example.com/
+
+    Keeps the trailing slash: some CDNs' hotlink protection only accepts a
+    referer that looks like a real page URL (`https://host/`) and answers a bare
+    `https://host` with 403.
+    """
     parsed = urlparse(url)
     if not parsed.scheme or not parsed.netloc:
         return ""
-    return f"{parsed.scheme}://{parsed.netloc}"
+    return f"{parsed.scheme}://{parsed.netloc}/"
 
 
 def fetch_soup(
@@ -156,20 +163,39 @@ def get_element_url(tag, base_url):
 # 1. Title
 # ----------------------------------------------------------------------
 
+def _title_candidates(soup: BeautifulSoup):
+    """Elements that could hold the story title: every heading, plus any element
+    whose class/id marks it as a title (e.g. <div class="title">) and that
+    container's descendants — the title often shares the wrapper with extra
+    metadata (e.g. the author), so the wrapper's own text is not a clean title."""
+    candidates = list(soup.find_all(["h1", "h2", "h3", "h4", "h5", "h6"]))
+    for tag in soup.find_all(True):
+        ident = " ".join([tag.get("id") or ""] + (tag.get("class") or []))
+        if ident and "title" in ident.lower():
+            candidates.append(tag)
+            candidates.extend(tag.find_all(True))
+    return candidates
+
+
 def find_title(soup: BeautifulSoup, thumb_img) -> str:
-    # Priority: h1 matching og:title (use og:title as an anchor to pick the
-    # right h1, but do not return og:title directly) > first h1 > <title> tag >
-    # thumb alt
+    # Priority: the candidate whose text is contained in og:title (use og:title
+    # as an anchor to pick the right element, but do not return og:title itself)
+    # > first h1 > <title> tag > thumb alt
     og = soup.find("meta", property="og:title")
     og_content = og.get("content", "").strip() if og and og.get("content") else ""
 
-    h1_tags = soup.find_all("h1")
-
     if og_content:
-        for h1 in h1_tags:
-            text = h1.get_text(strip=True)
-            if text and text in og_content:
-                return text
+        # og:title normally appends the site name ("Title - Site"), so the real
+        # title is the candidate text CONTAINED in it. Keep the longest match:
+        # that rules out short generic section headings ("Danh sách chapter")
+        # that also sit in the page but are not the story title.
+        best = ""
+        for tag in _title_candidates(soup):
+            text = tag.get_text(strip=True)
+            if text and text in og_content and len(text) > len(best):
+                best = text
+        if best:
+            return best
 
     h1 = soup.find("h1")
     if h1 and h1.get_text(strip=True):
@@ -188,7 +214,33 @@ def find_title(soup: BeautifulSoup, thumb_img) -> str:
 # 2. Thumbnail
 # ----------------------------------------------------------------------
 
+# Images whose alt text states they are a cover. Used to recognise the story's
+# own cover on pages where og:image points at a stale or generic file.
+ALT_COVER_SELECTOR = (
+    'img[alt*="cover" i], img[alt*="bìa" i], img[alt*="poster" i], '
+    'img[alt*="thumbnail" i]'
+)
+
+
+def _unique_alt_cover(soup: BeautifulSoup):
+    """The page's cover <img>, but only when the alt text marks exactly ONE
+    image as a cover. Zero or several such images means we cannot tell which one
+    belongs to this story (a "related comics" grid uses the same alt wording),
+    so the caller should fall back to og:image."""
+    hits = soup.select(ALT_COVER_SELECTOR)
+    return hits[0] if len(hits) == 1 else None
+
+
 def find_thumb(soup: BeautifulSoup, base_url: str):
+    # An unambiguous in-page cover wins over og:image: some themes point
+    # og:image at a generic per-slug file while the real cover (often on a CDN)
+    # is what the page actually renders.
+    cover = _unique_alt_cover(soup)
+    if cover is not None:
+        src = _img_src(cover)
+        if src:
+            return {"url": urljoin(base_url, src), "element": cover}
+
     # Priority: og:image meta > img[class/id*=thumb/cover] > .thumb img/.cover img > first <img>
     og = soup.find("meta", property="og:image")
     if og:
@@ -335,11 +387,28 @@ def find_row(chapter_leaf, thumb_img, all_date_leaves):
     return chapter_leaf.parent or chapter_leaf
 
 
+def _date_value(tag) -> str:
+    """The date a date-element stands for.
+
+    Prefer its machine-readable `datetime` attribute: themes commonly put the
+    real timestamp there while the visible text is a JS-filled relative label
+    ("...", "11 tháng"), which either says nothing or reads as a count.
+    """
+    dt = (tag.get("datetime") or "").strip()
+    if dt:
+        return dt
+    return leaf_text(tag)
+
+
 def find_all_date_leaves(soup: BeautifulSoup):
     """Scan the WHOLE document (equivalent to document.querySelectorAll('*')),
-    collecting every leaf matching DATE_REGEX exactly once."""
+    collecting every leaf matching DATE_REGEX, plus any element carrying a
+    machine-readable `datetime` attribute, exactly once."""
     leaves = []
     for tag in soup.find_all(True):
+        if (tag.get("datetime") or "").strip():
+            leaves.append(tag)
+            continue
         if not is_leaf(tag):
             continue
         text = leaf_text(tag)
@@ -357,7 +426,7 @@ def find_time_in_row(row, chapter_leaf, all_date_leaves):
             continue
         # a tag is inside row <=> row is one of the tag's ancestors
         if row in tag.parents or tag is row:
-            matches.append(leaf_text(tag))
+            matches.append(_date_value(tag))
     return matches
 
 
@@ -423,7 +492,9 @@ def _is_same_story(url: str, base_url: str) -> bool:
 
 NAV_BUTTON_TEXTS = {
     "đọc từ đầu", "đọc mới nhất", "đọc tiếp", "xem online", "xem trước",
+    "bắt đầu đọc", "đọc ngay",
     "read first", "read latest", "first", "latest", "read now", "read",
+    "start reading",
 }
 
 # A "load more" control attached to the chapter list. Some sites render only
@@ -600,6 +671,27 @@ def _last_slug(url: str) -> str:
     return path.rsplit("/", 1)[-1] if path else ""
 
 
+def _genre_links_by_group(soup: BeautifulSoup, base_url: str) -> list:
+    """Fallback for sites that list genre links as plain tags with no
+    'Thể loại'/'Genre' label (e.g. mimi). Groups the genre links by their
+    parent element and keeps the smallest group that holds several links but is
+    still small enough to be one story's genre list: a story keeps its own
+    genres together in one container, while a site-wide genre menu is either one
+    much bigger group or spreads the links one per wrapper (every group size 1)
+    — neither is trusted."""
+    groups = {}
+    for a in soup.find_all("a", href=True):
+        url = urljoin(base_url, a["href"])
+        if not _is_genre_href(url):
+            continue
+        groups.setdefault(id(a.parent), []).append(a)
+
+    candidates = [g for g in groups.values() if 2 <= len(g) <= 15]
+    if not candidates:
+        return []
+    return min(candidates, key=len)
+
+
 def find_genres(soup: BeautifulSoup, base_url: str) -> list:
     label_els = []
     for tag in soup.find_all(True):
@@ -644,6 +736,9 @@ def find_genres(soup: BeautifulSoup, base_url: str) -> list:
             best = found
 
     if not best:
+        best = _genre_links_by_group(soup, base_url)
+
+    if not best:
         return []
 
     genres = []
@@ -665,6 +760,17 @@ def find_genres(soup: BeautifulSoup, base_url: str) -> list:
 # Main
 # ----------------------------------------------------------------------
 
+def _secure_thumb(thumb_url: str, base_url: str) -> str:
+    """Upgrade the cover URL from http to https when the story page itself is
+    https on the same host: a bot-walled host rejects the plain-http variant
+    outright, and mixing an http image into an https page is blocked anyway."""
+    if not thumb_url.startswith("http://") or not base_url.startswith("https://"):
+        return thumb_url
+    if urlparse(thumb_url).netloc.lower() != urlparse(base_url).netloc.lower():
+        return thumb_url
+    return "https://" + thumb_url[len("http://"):]
+
+
 def _extract_from_soup(soup: BeautifulSoup, base_url: str, debug: bool = False) -> dict:
     """Main pipeline: run the heuristics on the soup and return the exact
     contract the app consumes (engine + GUI):
@@ -680,7 +786,7 @@ def _extract_from_soup(soup: BeautifulSoup, base_url: str, debug: bool = False) 
 
     result = {
         "title": title,
-        "thumb": thumb["url"],
+        "thumb": _secure_thumb(thumb["url"], base_url),
         "referer": get_referer(base_url),
         "genres": genres,
         "has_more_chapters": has_chapter_load_more(soup),

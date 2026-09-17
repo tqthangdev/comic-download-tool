@@ -8,6 +8,7 @@ from core.logger import logger
 from core.scraper import get_referer
 from core.utils import CONFIG
 from core.auth import auth_manager
+from core import stealth
 
 CONTENT_TYPE_EXT = {
     "image/jpeg": ".jpg",
@@ -102,6 +103,13 @@ class Downloader:
             headers["Referer"] = referer
         if extra_headers:
             headers.update(extra_headers)
+
+        # A challenge clearance is bound to the User-Agent (and IP) that earned it,
+        # so replay both its UA and its cookies for this host.
+        stealth_headers = stealth.headers_for(url)
+        if stealth_headers:
+            headers.update(stealth_headers)
+            cookies = {**(cookies or {}), **stealth.cookies_for(url)}
 
         ssl_config = self._ssl_for_site(site_id)
         last_error = None

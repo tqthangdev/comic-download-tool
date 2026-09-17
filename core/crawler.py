@@ -12,6 +12,7 @@ from core.scraper import (
 from core.utils import resolve_ddg_proxy, CONFIG
 from core.logger import logger
 from core.auth import auth_manager
+from core import stealth
 
 # Placeholder URLs (unrendered / lazy images) — not real content
 PLACEHOLDER_PARTS = ("transparent", "placeholder", "loading", "spacer", "/assets/img/")
@@ -172,8 +173,19 @@ class Crawler:
                     best.setdefault("referer", data.get("referer") or "")
                 return best
             except BotProtectionError:
-                # The site refuses plain HTTP clients outright; retrying or
-                # rendering will not help, so surface it immediately.
+                # The site refuses plain HTTP clients; the only way in is a real,
+                # non-automated browser (nodriver) that can clear the challenge.
+                if not stealth.is_available():
+                    raise
+                logger.info(f"[get_chapters] Cloudflare detected, trying stealth fallback: {url}")
+                try:
+                    html = await stealth.fetch_html(url)
+                except Exception as e:
+                    logger.error(f"[get_chapters] Stealth fallback failed for {url}: {e}")
+                    raise
+                rendered = await loop.run_in_executor(None, scrape_from_html, html, url)
+                if rendered.get("chapters"):
+                    return rendered
                 raise
             except Exception as e:
                 last_error = e
@@ -186,11 +198,21 @@ class Crawler:
         if self._http_session is None:
             raise RuntimeError("HTTP session not set. Call crawler.set_http_session(session) first.")
 
-        cookies = auth_manager.get_cookies(site_id) if site_id else None
+        cookies = dict(auth_manager.get_cookies(site_id) or {}) if site_id else {}
         headers = auth_manager.get_headers(site_id) if site_id else None
 
+        # A challenge clearance is bound to the UA that earned it, so replay both
+        # the captured User-Agent and its cookies for this host.
+        clearance_headers = stealth.headers_for(url)
+        if clearance_headers:
+            headers = {**(headers or {}), **clearance_headers}
+            cookies.update(stealth.cookies_for(url))
+
         async with self._http_session.get(
-            url, timeout=CONFIG["request_timeout"], cookies=cookies, headers=headers
+            url,
+            timeout=CONFIG["request_timeout"],
+            cookies=cookies or None,
+            headers=headers,
         ) as resp:
             html = await resp.text()
 
@@ -211,6 +233,19 @@ class Crawler:
                     urls = [resolve_ddg_proxy(src) for src in rendered]
             except Exception as e:
                 logger.error(f"[extract_images] Playwright fallback failed for {url}: {e}")
+
+            # Still nothing real -> Playwright itself is being fingerprinted
+            # and refused (Cloudflare). Try nodriver stealth as a last resort.
+            if not _has_real_images(urls) and stealth.is_available():
+                try:
+                    stealth_html = await stealth.fetch_html(url)
+                    stealth_urls = await loop.run_in_executor(
+                        None, find_chapter_images, stealth_html, url
+                    )
+                    if _has_real_images(stealth_urls):
+                        urls = [resolve_ddg_proxy(src) for src in stealth_urls]
+                except Exception as e:
+                    logger.error(f"[extract_images] Stealth fallback failed for {url}: {e}")
 
         return urls
 
