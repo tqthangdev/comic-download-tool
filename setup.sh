@@ -30,7 +30,7 @@ for arg in "$@"; do
     case "$arg" in
         --no-venv) NO_VENV=true ;;
         --skip-browsers) SKIP_BROWSERS=true ;;
-        *) echo "Khong nhan dien duoc doi so: $arg"; echo "Huu ich: --no-venv, --skip-browsers"; exit 1 ;;
+        *) echo "Unknown argument: $arg"; echo "Valid options: --no-venv, --skip-browsers"; exit 1 ;;
     esac
 done
 
@@ -39,11 +39,11 @@ echo "  Comic Download Tool - Auto Installer"
 echo "============================================================"
 echo
 echo "Python: $($PYTHON_BIN --version 2>/dev/null || echo 'not found')"
-echo "Hệ điều hành: $(uname -s)"
+echo "OS: $(uname -s)"
 
 if [ ! -f "requirements.txt" ]; then
     echo
-    echo "LOI: khong tim thay requirements.txt trong thu muc project."
+    echo "ERROR: requirements.txt was not found in the project folder."
     exit 1
 fi
 
@@ -51,16 +51,16 @@ fi
 VENV_MODE="venv"
 if [ "$NO_VENV" = true ]; then
     echo
-    echo "[1/3] Bo qua tao venv (--no-venv), cai package vao thu muc vendor/."
+    echo "[1/3] Skipping venv (--no-venv), installing packages into vendor/."
     VENV_MODE="vendor"
 else
     echo
-    echo "[1/3] Tao virtual environment..."
+    echo "[1/3] Creating virtual environment..."
     if ! "$PYTHON_BIN" -m venv "$VEN" 2>/dev/null || [ ! -x "$VENV_PY" ]; then
-        echo "   Khong tao duoc venv -> Fallback: cai package vao thu muc vendor/ trong project."
+        echo "   Could not create venv -> Falling back to installing packages into the project's vendor/ folder."
         VENV_MODE="vendor"
     else
-        echo "   Virtual environment da san sang: $VEN"
+        echo "   Virtual environment ready: $VEN"
     fi
 fi
 
@@ -75,7 +75,7 @@ fi
 
 # ================= 2. INSTALL DEPENDENCIES =================
 echo
-echo "[2/3] Cai dat dependencies..."
+echo "[2/3] Installing dependencies..."
 "$PY" -m pip install --upgrade pip
 if [ "$VENV_MODE" = "vendor" ]; then
     "$PY" -m pip install --target "$VENDOR_DIR" -r requirements.txt
@@ -83,13 +83,29 @@ else
     "$PY" -m pip install -r requirements.txt
 fi
 
+# ---- Fix nodriver's UTF-8 bug (cdp/network.py contains latin-1 bytes) ----
+# We cannot import nodriver to locate it (that import is the failure), so use
+# sysconfig to resolve the venv's site-packages; vendor mode points at vendor/.
+FIX_SCRIPT="$PWD/lib/fix_nodriver.py"
+if [ "$VENV_MODE" = "vendor" ]; then
+    NODRIVER_DIR="$PWD/$VENDOR_DIR/nodriver"
+else
+    NODRIVER_DIR="$("$PY" -c "import sysconfig, os; print(os.path.join(sysconfig.get_paths()['purelib'], 'nodriver'))")"
+fi
+if [ -f "$FIX_SCRIPT" ]; then
+    echo "  Patching nodriver UTF-8 encoding..."
+    "$PY" "$FIX_SCRIPT" "$NODRIVER_DIR"
+else
+    echo "  Warning: $FIX_SCRIPT not found, skipping nodriver patch."
+fi
+
 # ================= 3. PLAYWRIGHT BROWSERS =================
 if [ "$SKIP_BROWSERS" = true ]; then
     echo
-    echo "[3/3] Bo qua tai Chromium (--skip-browsers)."
+    echo "[3/3] Skipping Chromium download (--skip-browsers)."
 else
     echo
-    echo "[3/3] Tai Chromium cho Playwright (co the mat vai phut)..."
+    echo "[3/3] Downloading Chromium for Playwright (this may take a few minutes)..."
     # Install Chromium into project/ms-playwright so the app always runs
     # from the code folder (portable), independent of the machine's cache.
     PLAYWRIGHT_BROWSERS_PATH="$PWD/$BROWSERS_DIR" "$PY" -m playwright install chromium
@@ -98,7 +114,7 @@ fi
 # ================= DONE =================
 echo
 echo "============================================================"
-echo "  Hoan tat! Chay app bang lenh:"
+echo "  Done! Run the app with:"
 if [ "$VENV_MODE" = "venv" ]; then
     echo "    $PWD/.venv/bin/python run.py"
 else

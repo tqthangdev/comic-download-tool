@@ -10,11 +10,16 @@ cd "$(dirname "$0")"
 pick_python() {
     if [ -x ".venv/bin/python" ]; then
         PY=".venv/bin/python"
+        # Cannot import nodriver to locate it (that import is the failure), so
+        # resolve the venv's site-packages via sysconfig instead.
+        NODRIVER_DIR="$("$PY" -c "import sysconfig, os; print(os.path.join(sysconfig.get_paths()['purelib'], 'nodriver'))" 2>/dev/null || true)"
     elif [ -d "vendor" ]; then
         PY="python3"
         export PYTHONPATH="$PWD/vendor"
+        NODRIVER_DIR="$PWD/vendor/nodriver"
     else
         PY=""
+        NODRIVER_DIR=""
     fi
 }
 
@@ -33,6 +38,11 @@ if [ -z "$PY" ]; then
         echo "Installation failed. Please run manually: ./setup.sh"
         exit 1
     fi
+fi
+
+# Patch the nodriver UTF-8 bug (safe to run repeatedly), matching start.bat.
+if [ -n "$NODRIVER_DIR" ] && [ -f "$PWD/lib/fix_nodriver.py" ]; then
+    "$PY" "$PWD/lib/fix_nodriver.py" "$NODRIVER_DIR" || true
 fi
 
 exec "$PY" run.py

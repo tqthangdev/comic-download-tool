@@ -1,14 +1,6 @@
 # ============================================================
 #  Auto installer for the Comic Download Tool (Windows)
 #
-#  Installs everything needed to run the app, all kept inside
-#  the code folder:
-#    1. Creates a virtual environment (.venv) — if the system
-#       cannot create one it falls back to installing packages
-#       into vendor/.
-#    2. Installs the dependencies listed in requirements.txt.
-#    3. Downloads Chromium for Playwright into ms-playwright/.
-#
 #  Usage:
 #    powershell -ExecutionPolicy Bypass -File setup.ps1
 #    powershell -ExecutionPolicy Bypass -File setup.ps1 -NoVenv
@@ -20,8 +12,6 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-
-# Làm việc từ thư mục chứa script này
 Set-Location $PSScriptRoot
 
 function Write-Step($title) {
@@ -31,40 +21,43 @@ function Write-Step($title) {
     Write-Host "============================================================"
 }
 
-$VENV_DIR = Join-Path $PSScriptRoot ".venv"
-$VENDOR_DIR = Join-Path $PSScriptRoot "vendor"
+$VENV_DIR     = Join-Path $PSScriptRoot ".venv"
+$VENDOR_DIR   = Join-Path $PSScriptRoot "vendor"
 $BROWSERS_DIR = Join-Path $PSScriptRoot "ms-playwright"
-$PYTHON_DIR = Join-Path $PSScriptRoot "python"
+$PYTHON_DIR   = Join-Path $PSScriptRoot "python"
+$FixScript    = Join-Path $PSScriptRoot "lib\fix_nodriver.py"
+
+# Try running a python command with the given args; returns $true if it works
+function Test-Python($exe, $pyArgs) {
+    try {
+        $null = & $exe @pyArgs --version 2>&1
+        return ($LASTEXITCODE -eq 0)
+    } catch {
+        return $false
+    }
+}
 
 # ================= 0. FIND PYTHON =================
 Write-Step "Finding Python..."
-$PythonExe = $null
+$PythonExe  = $null
+$PythonArgs = @()
 
-# Tìm python trên PATH
-$pythonCmd = Get-Command python -ErrorAction SilentlyContinue
-if ($pythonCmd) {
-    # python có thể là WindowsApps stub -> gọi thử version
-    try {
-        $ver = & python --version 2>&1
-        if ($LASTEXITCODE -eq 0) { $PythonExe = "python" }
-    } catch {}
+# Use python from PATH; if missing, try "py -3" (newest installed version)
+if (Get-Command python -ErrorAction SilentlyContinue) {
+    if (Test-Python "python" @()) { $PythonExe = "python" }
 }
-if (-not $PythonExe) {
-    $pyCmd = Get-Command py -ErrorAction SilentlyContinue
-    if ($pyCmd) {
-        try {
-            $ver = & py -3 --version 2>&1
-            if ($LASTEXITCODE -eq 0) { $PythonExe = "py -3" }
-        } catch {}
-    }
+if (-not $PythonExe -and (Get-Command py -ErrorAction SilentlyContinue)) {
+    if (Test-Python "py" @("-3")) { $PythonExe = "py"; $PythonArgs = @("-3") }
 }
 if ($PythonExe) {
-    Write-Host "  Su dung Python: $( & $PythonExe --version )"
+    $verText = & $PythonExe @PythonArgs --version
+    Write-Host "  Using Python: $verText"
 }
-# Nếu không có Python -> tải bản embeddable dùng thư viện `python` cục bộ
+
+# No Python found -> download the embeddable build
 if (-not $PythonExe) {
     if (-not (Test-Path (Join-Path $PYTHON_DIR "python.exe"))) {
-        Write-Host "  Khong tim thay Python. Dang tai Python embeddable..."
+        Write-Host "  Python not found. Downloading Python embeddable..."
         New-Item -ItemType Directory -Force -Path $PYTHON_DIR | Out-Null
         $zip = Join-Path $PYTHON_DIR "python-embed.zip"
         $url = "https://www.python.org/ftp/python/3.12.8/python-3.12.8-embed-amd64.zip"
@@ -72,74 +65,87 @@ if (-not $PythonExe) {
         Expand-Archive -Path $zip -DestinationPath $PYTHON_DIR -Force
         Remove-Item $zip -Force
 
-        # Bật 'import site' trong embeddable
         Get-ChildItem -Path $PYTHON_DIR -Filter "python*._pth" | ForEach-Object {
             $content = Get-Content $_.FullName
             $content = $content -replace '#import site', 'import site'
             Set-Content -Path $_.FullName -Value $content
         }
 
-        Write-Host "  Cai dat pip cho Python embeddable..."
+        Write-Host "  Installing pip for the embeddable Python..."
         & (Join-Path $PYTHON_DIR "python.exe") -m ensurepip --upgrade
     } else {
-        Write-Host "  Su dung Python embeddable tai $PYTHON_DIR"
+        Write-Host "  Using embeddable Python at $PYTHON_DIR"
     }
-    $PythonExe = Join-Path $PYTHON_DIR "python.exe"
+    $PythonExe  = Join-Path $PYTHON_DIR "python.exe"
+    $PythonArgs = @()
 }
 
-if (Test-Path (Join-Path $PSScriptRoot "requirements.txt") -eq $false) {
+if (-not (Test-Path (Join-Path $PSScriptRoot "requirements.txt"))) {
     Write-Host ""
-    Write-Host "LOI: khong tim thay requirements.txt trong thu muc project."
+    Write-Host "ERROR: requirements.txt was not found in the project folder."
     exit 1
 }
 
 # ================= 1. VIRTUAL ENVIRONMENT =================
 $VenvMode = "venv"
 if ($NoVenv) {
-    Write-Step "[1/3] Bo qua tao venv (--no-venv), cai package vao thu muc vendor/."
+    Write-Step "[1/3] Skipping venv (-NoVenv), installing packages into vendor/."
     $VenvMode = "vendor"
 } else {
-    Write-Step "[1/3] Tao virtual environment..."
-    & $PythonExe -m venv $VENV_DIR
+    Write-Step "[1/3] Creating virtual environment..."
+    & $PythonExe @PythonArgs -m venv $VENV_DIR
     $VENV_PY = Join-Path $VENV_DIR "Scripts\python.exe"
     if (Test-Path $VENV_PY) {
-        Write-Host "  Virtual environment da san sang: $VENV_DIR"
+        Write-Host "  Virtual environment ready: $VENV_DIR"
     } else {
-        Write-Host "  Khong tao duoc venv -> Fallback: cai package vao thu muc vendor/ trong project."
+        Write-Host "  Could not create venv -> Falling back to installing packages into the project's vendor/ folder."
         $VenvMode = "vendor"
     }
 }
 
 if ($VenvMode -eq "venv") {
-    $PythonExe = Join-Path $VENV_DIR "Scripts\python.exe"
+    $PythonExe  = Join-Path $VENV_DIR "Scripts\python.exe"
+    $PythonArgs = @()
+    $NodriverDir = Join-Path $VENV_DIR "Lib\site-packages\nodriver"
 } else {
     New-Item -ItemType Directory -Force -Path $VENDOR_DIR | Out-Null
+    $NodriverDir = Join-Path $VENDOR_DIR "nodriver"
 }
 
 # ================= 2. INSTALL DEPENDENCIES =================
-Write-Step "[2/3] Cai dat dependencies..."
-& $PythonExe -m pip install --upgrade pip
+Write-Step "[2/3] Installing dependencies..."
+& $PythonExe @PythonArgs -m pip install --upgrade pip
+$req = Join-Path $PSScriptRoot "requirements.txt"
 if ($VenvMode -eq "vendor") {
-    & $PythonExe -m pip install --target $VENDOR_DIR -r (Join-Path $PSScriptRoot "requirements.txt")
+    & $PythonExe @PythonArgs -m pip install --target $VENDOR_DIR -r $req
 } else {
-    & $PythonExe -m pip install -r (Join-Path $PSScriptRoot "requirements.txt")
+    & $PythonExe @PythonArgs -m pip install -r $req
 }
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+# ---- Fix nodriver's UTF-8 bug (cdp/network.py contains latin-1 bytes) ----
+if (Test-Path $FixScript) {
+    Write-Host "  Patching nodriver UTF-8 encoding..."
+    & $PythonExe @PythonArgs $FixScript $NodriverDir
+} else {
+    Write-Host "  Warning: $FixScript not found, skipping nodriver patch."
+}
+
 # ================= 3. PLAYWRIGHT BROWSERS =================
 if ($SkipBrowsers) {
-    Write-Step "[3/3] Bo qua tai Chromium (--skip-browsers)."
+    Write-Step "[3/3] Skipping Chromium download (-SkipBrowsers)."
 } else {
-    Write-Step "[3/3] Tai Chromium cho Playwright (co the mat vai phut)..."
+    Write-Step "[3/3] Downloading Chromium for Playwright (this may take a few minutes)..."
     $env:PLAYWRIGHT_BROWSERS_PATH = $BROWSERS_DIR
-    & $PythonExe -m playwright install chromium
+    if ($VenvMode -eq "vendor") { $env:PYTHONPATH = $VENDOR_DIR }
+    & $PythonExe @PythonArgs -m playwright install chromium
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 
 # ================= DONE =================
 Write-Host ""
 Write-Host "============================================================"
-Write-Host "  Hoan tat! Chay app bang lenh:"
+Write-Host "  Done! Run the app with start.bat or:"
 if ($VenvMode -eq "venv") {
     Write-Host "    $VENV_DIR\Scripts\python.exe run.py"
 } else {

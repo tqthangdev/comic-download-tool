@@ -36,6 +36,27 @@ echo "=== Installing dependencies ==="
 "$PYTHON" -m pip install pyinstaller
 
 # ==========================================
+# PATCH NODRIVER
+# ==========================================
+
+# Some nodriver cdp modules ship latin-1 bytes in comments, which makes Python
+# raise "SyntaxError: Non-UTF-8 code starting with '\xb1'" on import. PyInstaller
+# parses those modules during dependency analysis, so patch them first — the same
+# fix setup scripts apply. Cannot import nodriver to locate it (that import is the
+# failure), so use sysconfig to resolve the venv's site-packages. Safe to re-run.
+FIX_SCRIPT="$PROJECT_DIR/lib/fix_nodriver.py"
+NODRIVER_DIR="$("$PYTHON" -c "import sysconfig, os; print(os.path.join(sysconfig.get_paths()['purelib'], 'nodriver'))")"
+
+if [ -f "$FIX_SCRIPT" ]; then
+    echo
+    echo "=== Patching nodriver UTF-8 encoding ==="
+    "$PYTHON" "$FIX_SCRIPT" "$NODRIVER_DIR"
+else
+    echo
+    echo "=== Warning: $FIX_SCRIPT not found, skipping nodriver patch ==="
+fi
+
+# ==========================================
 # PLAYWRIGHT
 # ==========================================
 
