@@ -17,6 +17,10 @@ from core import stealth
 # Placeholder URLs (unrendered / lazy images) — not real content
 PLACEHOLDER_PARTS = ("transparent", "placeholder", "loading", "spacer", "/assets/img/")
 
+# Chapter pages whose images are injected by a JS reader (lazy loaders, canvas
+# readers) ship a marker container and build the pages after the page runs.
+JS_READER_MARKERS = ("data-cipher-path", "chapter-img", "reader-root")
+
 
 def _has_real_images(urls: List[str]) -> bool:
     """Return True if at least one URL is not a placeholder."""
@@ -24,6 +28,24 @@ def _has_real_images(urls: List[str]) -> bool:
         not any(p in u.lower() for p in PLACEHOLDER_PARTS)
         for u in urls
     )
+
+
+def _images_are_page_chrome(html: str, urls: List[str], base_url: str) -> bool:
+    """True when the scraped images are the page's own furniture (logo, ads...)
+    rather than the chapter's pages.
+
+    A page that builds its images with JS leaves a reader container behind while
+    serving the real pages from a CDN, so whatever the raw HTML does contain is
+    served by the page's own host.
+    """
+    if not html or not urls:
+        return False
+
+    if not any(marker in html for marker in JS_READER_MARKERS):
+        return False
+
+    host = urlparse(base_url).netloc.lower()
+    return all(urlparse(u).netloc.lower() == host for u in urls)
 
 
 # Clicks every "load more" control tied to a chapter list, so a site that only
@@ -221,9 +243,9 @@ class Crawler:
         urls = [resolve_ddg_proxy(src) for src in raw_srcs]
 
         # If the page renders images with JS, the HTML fetched via aiohttp only
-        # shows placeholders (transparent/loading...) -> fall back to Playwright
-        # rendering and re-extract.
-        if not _has_real_images(urls):
+        # shows placeholders (transparent/loading...) — or, on a JS reader, just
+        # the page's own logo/ads — so fall back to Playwright rendering.
+        if not _has_real_images(urls) or _images_are_page_chrome(html, urls, url):
             try:
                 rendered_html = await self._render_html(url, site_id=site_id)
                 rendered = await loop.run_in_executor(

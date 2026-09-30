@@ -300,7 +300,7 @@ class Engine(QObject):
             # and let the GUI prompt the user to log in.
             if job.site_id:
                 try:
-                    auth_manager.ensure_logged_in(job.site_id)
+                    auth_manager.ensure_logged_in(job.site_id, job.url)
                 except AuthError:
                     await self.db.aupdate_status(job.url, "paused")
                     self.progress.emit(job.title, "Login required")
@@ -613,9 +613,18 @@ class Engine(QObject):
         raise last_err
 
     def verify_chapter(self, path, total_images):
+        """True when the chapter folder already holds every image it should.
+
+        Counts every image extension the downloader can produce (jpg, png, webp,
+        gif, bmp, avif) — sites serve .webp as often as .jpg.
+        """
         if not path.exists():
             return False
-        downloaded = len(list(path.glob("*.jpg")))
+        downloaded = sum(
+            1
+            for p in path.iterdir()
+            if p.is_file() and p.suffix.lower() in CONTENT_TYPE_EXT.values()
+        )
         failed_marker = path / ".failed_count"
         failed_count = 0
         if failed_marker.exists():

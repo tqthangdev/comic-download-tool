@@ -141,6 +141,8 @@ class ConfigSiteAuth(AuthHandler):
 
     def _login_form(self, username: str, password: str) -> AuthResult:
         session = self.build_session()
+        # Follow the site if it has moved to another domain (see retarget).
+        login_url = self.retarget(self.login_url)
 
         payload = {
             self.username_field: username,
@@ -154,7 +156,7 @@ class ConfigSiteAuth(AuthHandler):
         # GET the login page to fetch the CSRF token if needed.
         if self.csrf:
             try:
-                page = session.get(self.login_url, timeout=15)
+                page = session.get(login_url, timeout=15)
                 page.raise_for_status()
                 token = self._extract_csrf(page.text)
                 if token:
@@ -164,7 +166,7 @@ class ConfigSiteAuth(AuthHandler):
                 pass
 
         resp = session.post(
-            self.login_url,
+            login_url,
             data=payload,
             timeout=15,
             allow_redirects=True,
@@ -195,7 +197,7 @@ class ConfigSiteAuth(AuthHandler):
         for k, v in self.extra_form.items():
             payload[k] = v.replace("{username}", username) if isinstance(v, str) else v
 
-        resp = session.post(self.login_url, json=payload, timeout=15)
+        resp = session.post(self.retarget(self.login_url), json=payload, timeout=15)
         if not (200 <= resp.status_code < 300):
             raise AuthError(
                 tr("auth_login_failed_status").format(self.site_id, resp.status_code)
@@ -257,7 +259,7 @@ class ConfigSiteAuth(AuthHandler):
 
         try:
             resp = session.get(
-                self.check_url,
+                self.retarget(self.check_url),
                 timeout=10,
                 allow_redirects=False,
             )

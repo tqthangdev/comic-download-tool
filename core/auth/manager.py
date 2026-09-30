@@ -5,6 +5,7 @@ import inspect
 import logging
 import pkgutil
 from typing import Dict, Optional, Type
+from urllib.parse import urlparse
 
 import requests
 
@@ -121,10 +122,20 @@ class AuthManager:
         session = self.get_session(site_id)
         return handler.is_logged_in(session)
 
-    def ensure_logged_in(self, site_id: str) -> requests.Session:
-        """Return a valid session, or raise AuthError if not/login expired."""
-        session = self.get_session(site_id)
+    def ensure_logged_in(self, site_id: str, url: str = None) -> requests.Session:
+        """Return a valid session, or raise AuthError if not/login expired.
+
+        url: the page about to be downloaded, so a site that has moved domains
+        can retarget its login/check URLs at the host actually in use.
+        """
         handler = self._handler_for(site_id)
+
+        if url:
+            host = urlparse(url).netloc.lower()
+            if handler.matches_host(host):
+                handler.active_host = host
+
+        session = self.get_session(site_id)
 
         if not handler.is_logged_in(session):
             raise AuthError(
@@ -156,17 +167,18 @@ class AuthManager:
         }
 
     def site_id_for_url(self, url: str) -> Optional[str]:
-        """Auto-detect which registered site a URL belongs to based on domains."""
-        from urllib.parse import urlparse
+        """Auto-detect which registered site a URL belongs to.
 
-        netloc = urlparse(url).netloc.lower()
+        The match ignores the TLD (see base.host_matches), so a pasted URL still
+        finds its handler after the site moves (example.com -> example.net). The
+        host in use is recorded on the handler so its login/check URLs follow it.
+        """
+        host = urlparse(url).netloc.lower()
 
         for site_id, handler in self._handlers.items():
-            for domain in getattr(handler, "domains", ()):
-                domain = domain.lower()
-
-                if netloc == domain or netloc.endswith("." + domain):
-                    return site_id
+            if handler.matches_host(host):
+                handler.active_host = host
+                return site_id
 
         return None
 
