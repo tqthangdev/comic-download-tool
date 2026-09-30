@@ -105,7 +105,7 @@ class RightPanel(QWidget):
             return
 
         item = QListWidgetItem(job.title)
-        item.setSizeHint(QSize(0, 28))
+        item.setSizeHint(QSize(0, QueueDelegate.ROW_HEIGHT))
 
         item.setData(
             Qt.ItemDataRole.UserRole,

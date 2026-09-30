@@ -109,6 +109,7 @@ DEFAULT_CONFIG = {
     "request_timeout": 30,
     "download_thumb": True,
     "download_genres": True,
+    "convert_to_pdf": False,
     "language": "en",
     "user_agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "

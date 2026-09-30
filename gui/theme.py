@@ -174,7 +174,7 @@ QWidget#detail_tree {
 }
 QTreeWidget#detail_tree::item {
     background: transparent;
-    color: #00e5ff;
+    color: #4CAF50;
 }
 """ + SCROLLBAR_STYLE
 
@@ -186,7 +186,7 @@ QWidget#detail_chapter {
 }
 QHeaderView::section {
     background: transparent;
-    color: #00e5ff;
+    color: #4CAF50;
     border: none;
 }
 """

@@ -10,15 +10,13 @@ class QueueDelegate(QStyledItemDelegate):
     # so somewhere else (MainWindow) can actually call engine.del_job(url).
     deleteRequested = pyqtSignal(str)
 
-    # max/min width reserved for the status area on the right
-    STATUS_WIDTH_MAX = 200
-    STATUS_WIDTH_MIN = 150
+    # Height of one row: enough for the two stacked lines (name + status).
+    ROW_HEIGHT = 46
+
     LEFT_PADDING = 5
-    GAP = 10  # gap between the title and the status
 
     TRASH_SIZE = 16
     TRASH_GAP = 5
-    TRASH_TOP_PADDING = 2
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -42,10 +40,15 @@ class QueueDelegate(QStyledItemDelegate):
         self._view = None
 
     def _trash_rect(self, row_rect: QRect) -> QRect:
-        """Return the area occupied by the trash icon, given the row's rect."""
+        """Return the area occupied by the trash icon, given the row's rect.
+
+        The icon lines up with the title on the first line, not with the row as
+        a whole.
+        """
+        line_height = row_rect.height() // 2
         return QRect(
             row_rect.left() + self.LEFT_PADDING,
-            row_rect.top() + (row_rect.height() - self.TRASH_SIZE) // 2 + self.TRASH_TOP_PADDING,
+            row_rect.top() + (line_height - self.TRASH_SIZE) // 2,
             self.TRASH_SIZE,
             self.TRASH_SIZE,
         )
@@ -105,36 +108,22 @@ class QueueDelegate(QStyledItemDelegate):
                 self.trash_pixmap
             )
 
-        # ================= COMPUTE STATUS WIDTH DYNAMICALLY =================
-        # status takes up to ~30% of the frame width, capped by STATUS_WIDTH_MAX
-        # and floored by STATUS_WIDTH_MIN, so it always fits in the current frame
-        status_width = max(
-            self.STATUS_WIDTH_MIN,
-            min(self.STATUS_WIDTH_MAX, int(rect.width() * 0.3))
-        )
+        # ================= TEXT AREA (name above, status below) =================
+        # The whole remaining width is used: the name sits on the first line and
+        # the status on the second, directly under it.
+        text_left = trash_rect.right() + self.TRASH_GAP
+        text_width = max(0, rect.right() - text_left - self.LEFT_PADDING)
 
-        # ================= STATUS AREA (fixed on the right) =================
+        line_height = rect.height() // 2
+        title_rect = QRect(text_left, rect.top(), text_width, line_height)
         status_rect = QRect(
-            rect.right() - status_width,
-            rect.top() + self.TRASH_TOP_PADDING,
-            status_width,
-            rect.height()
+            text_left,
+            rect.top() + line_height,
+            text_width,
+            rect.height() - line_height,
         )
 
-        # ================= TITLE AREA (remaining space on the left) =================
-        title_left = trash_rect.right() + self.TRASH_GAP
-        title_width = max(
-            0,
-            status_rect.left() - title_left - self.GAP
-        )
-        title_rect = QRect(
-            title_left,
-            rect.top() + self.TRASH_TOP_PADDING,
-            title_width,
-            rect.height()
-        )
-
-        # elide the title if it is too long so it does not overlap the status
+        # elide the title if it is too long so it does not overflow the row
         metrics = QFontMetrics(painter.font())
         elided_title = metrics.elidedText(
             title,
@@ -165,6 +154,8 @@ class QueueDelegate(QStyledItemDelegate):
                 color = "#9E9E9E"
             case s if s.startswith("Downloading"):
                 color = "#4CAF50"
+            case s if s.startswith("Converting"):
+                color = "#4CAF50"
             case _:
                 color = "#e0e0e0"
 
@@ -194,7 +185,7 @@ class QueueDelegate(QStyledItemDelegate):
 
         painter.drawText(
             status_rect,
-            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
             status
         )
 

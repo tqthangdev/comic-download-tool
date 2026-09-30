@@ -415,6 +415,21 @@ class Engine(QObject):
             job.current_chap = chap_index
             await self.db.aupdate_current_chap(job.url, chap_index)
 
+            chap_folder_name = f"{chap_index:04d} - {safe_filename(chap['title'])}"
+            chap_path = job.save_path / chap_folder_name
+
+            # In "Convert to PDF" mode the PDF is the finished artifact, so a
+            # chapter that already has one is done — skip fetching its images.
+            if CONFIG.get("convert_to_pdf", False) and (
+                job.save_path / f"{chap_folder_name}.pdf"
+            ).exists():
+                if self.running:
+                    self.progress.emit(
+                        job.title,
+                        f"Downloading...({chap_index}/{total_chap}): 100%",
+                    )
+                continue
+
             # cuutruyen pages are DRM-scrambled: fetch the page metadata (the
             # images themselves are rendered through the site's wasm module).
             use_cuutruyen = cuutruyen.is_cuutruyen_url(chap["url"])
@@ -427,9 +442,6 @@ class Engine(QObject):
                 imgs = await self._extract_images_with_retry(
                     chap["url"], site_id=job.site_id
                 )
-
-            chap_folder_name = f"{chap_index:04d} - {safe_filename(chap['title'])}"
-            chap_path = job.save_path / chap_folder_name
 
             # Migration cho job tải bằng bản cũ (chưa có prefix số)
             legacy_path = job.save_path / safe_filename(chap["title"])
@@ -486,7 +498,41 @@ class Engine(QObject):
                     f"[{job.title}] Chapter {chap['title']}: {len(missing_urls)} missing images: {missing_urls}"
                 )
 
+        if CONFIG.get("convert_to_pdf", False):
+            await self._build_chapter_pdfs(job)
+
         return has_failed, has_missing, missing_details
+
+    async def _build_chapter_pdfs(self, job):
+        """Turn each downloaded chapter into a single PDF, one at a time so the
+        queue can show how far the conversion has got."""
+        from core import pdf
+
+        folders = pdf.chapter_folders(job.save_path)
+        total = len(folders)
+        if not total:
+            return
+
+        loop = asyncio.get_running_loop()
+        built = 0
+
+        for index, folder in enumerate(folders, 1):
+            self.progress.emit(job.title, f"Converting to pdf {index}/{total}")
+            try:
+                result = await loop.run_in_executor(
+                    None, pdf.convert_chapter, folder, job.save_path
+                )
+            except Exception as e:
+                logger.error(
+                    f"[{job.title}] PDF conversion failed for '{folder.name}': {e}"
+                )
+                continue
+
+            if result == pdf.PDF_BUILT:
+                built += 1
+
+        if built:
+            logger.info(f"[{job.title}] Converted {built} chapter(s) to PDF")
 
     async def _download_thumb(self, job, data):
         if not CONFIG.get("download_thumb", True):

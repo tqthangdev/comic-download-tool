@@ -20,4 +20,8 @@ for p in root.rglob("*.py"):
     p.write_bytes(data.replace(b"\xb1", b"+/-"))
     print("fix_nodriver: patched", p)
     count += 1
-print("fix_nodriver: done,", count, "file(s) patched")
+
+# Stay quiet when there is nothing to do: this runs on every app launch, so an
+# unconditional summary would print on every start after the first patch.
+if count:
+    print("fix_nodriver: done,", count, "file(s) patched")

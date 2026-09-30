@@ -26,6 +26,7 @@ from PyQt6.QtCore import Qt, QSize, QSettings
 
 from core.utils import get_resource_path, CONFIG, save_config
 from core.i18n import tr, set_lang, get_lang
+from core.logger import logger
 from gui.cursor_utils import apply_pointer_cursors
 from gui.theme import (
     RADIO_STYLE,
@@ -197,7 +198,13 @@ class LeftPanel(QWidget):
         self.auto_queue_cb.setChecked(auto_queue_saved)
         self.auto_queue_cb.toggled.connect(self.on_auto_queue_toggled)
 
+        # Engine-visible option, so it lives in config.json rather than QSettings.
+        self.pdf_cb = make_checkbox(tr("convert_to_pdf"))
+        self.pdf_cb.setChecked(bool(CONFIG.get("convert_to_pdf", False)))
+        self.pdf_cb.toggled.connect(self.on_convert_to_pdf_toggled)
+
         checkbox_col.addWidget(shutdown_row, 0, Qt.AlignmentFlag.AlignLeft)
+        checkbox_col.addWidget(self.pdf_cb, 0, Qt.AlignmentFlag.AlignLeft)
         checkbox_col.addWidget(self.auto_queue_cb, 0, Qt.AlignmentFlag.AlignLeft)
 
         self.btn_settings = QPushButton(tr("settings"))
@@ -379,6 +386,19 @@ class LeftPanel(QWidget):
             return 60
 
     # =========================
+    # checkbox "Convert to PDF"
+    # =========================
+    def on_convert_to_pdf_toggled(self, checked):
+        """Persist to config.json — the engine reads it to build the PDFs."""
+        new_config = dict(CONFIG)
+        new_config["convert_to_pdf"] = checked
+        if save_config(new_config):
+            CONFIG.clear()
+            CONFIG.update(new_config)
+        else:
+            logger.error("[config] Failed to persist convert_to_pdf")
+
+    # =========================
     # UPDATE TEXT WHEN THE LANGUAGE CHANGES
     # =========================
     def retranslate(self):
@@ -392,6 +412,7 @@ class LeftPanel(QWidget):
         self.btn_add.setText(tr("add_queue"))
         self.btn_about.setText(tr("about"))
         self.auto_queue_cb.setText(tr("auto_queue"))
+        self.pdf_cb.setText(tr("convert_to_pdf"))
         self.shutdown_cb.setText(tr("shutdown_after_done"))
         self.shutdown_delay.setToolTip(tr("shutdown_delay_hint"))
         self.shutdown_delay_unit.setText(tr("shutdown_seconds"))

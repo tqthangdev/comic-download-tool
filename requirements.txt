@@ -12,5 +12,10 @@ qasync
 # Browser crawling
 playwright
 
+# PDF export ("Convert to PDF"): img2pdf embeds JPEG pages losslessly and uses
+# Pillow as its backend for the other image formats a chapter can contain.
+img2pdf
+Pillow
+
 # Build (only needed to package the executable, not to run the app)
 pyinstaller
