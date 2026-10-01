@@ -63,33 +63,6 @@ Write-Host "=== Installing Playwright Chromium ==="
 & $PYTHON -m playwright install chromium
 
 # ==========================================
-# CONFIG TEMPLATE
-# ==========================================
-
-# data/config.json is runtime state (gitignored), so a fresh checkout has no
-# copy of it. Seed one from the app's own defaults so the build can still bundle
-# a starter config — the app copies it next to the executable on first run.
-if (!(Test-Path "data\config.json")) {
-    Write-Host ""
-    Write-Host "=== Seeding data\config.json from defaults ==="
-
-    @'
-import json
-import pathlib
-
-from core.utils import DEFAULT_CONFIG
-
-path = pathlib.Path("data/config.json")
-path.parent.mkdir(parents=True, exist_ok=True)
-path.write_text(
-    json.dumps(DEFAULT_CONFIG, indent=4, ensure_ascii=False) + "\n",
-    encoding="utf-8",
-)
-print("wrote", path)
-'@ | & $PYTHON -
-}
-
-# ==========================================
 # VERIFY
 # ==========================================
 
@@ -100,8 +73,8 @@ if (!(Test-Path "run.py")) {
     throw "run.py was not found."
 }
 
-if (!(Test-Path "data\config.json")) {
-    throw "data\config.json was not found."
+if (!(Test-Path "version.json")) {
+    throw "version.json was not found."
 }
 
 if (!(Test-Path "assets\icon.ico")) {
@@ -158,7 +131,7 @@ datas = [
         "assets",
     ),
     (
-        str(BASE_DIR / "data" / "config.json"),
+        str(BASE_DIR / "version.json"),
         ".",
     ),
     (

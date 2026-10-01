@@ -13,8 +13,12 @@ from pathlib import Path
 from typing import Optional
 import requests
 
-# data/ sits next to the app, sessions/ inside data/
-SESSIONS_DIR = Path(__file__).resolve().parents[2] / "data" / "sessions"
+from core.utils import DATA_DIR
+
+# Sessions live in the writable data folder next to the app. Resolving this from
+# the module location would land inside the frozen bundle (_internal/), which is
+# read-only and belongs to the build.
+SESSIONS_DIR = DATA_DIR / "sessions"
 
 
 class SessionStore:

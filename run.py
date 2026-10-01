@@ -47,6 +47,15 @@ def _setup_playwright_browsers_path():
 
 _setup_playwright_browsers_path()
 
+# --- Updater mode ---
+# The app re-runs this same executable (or this script, from source) as a
+# separate process to replace the installation, so the swap never happens while
+# the old build is still running. Handled before the GUI imports on purpose.
+if "--update" in sys.argv:
+    from updater.update import main as _updater_main
+
+    sys.exit(_updater_main())
+
 # --- Normal app run mode ---
 import asyncio
 import traceback

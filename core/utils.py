@@ -102,8 +102,8 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 
 DEFAULT_CONFIG = {
-    "max_workers": 8,
-    "max_concurrent_downloads": 8,
+    "max_workers": 5,
+    "max_concurrent_downloads": 5,
     "download_retry": 3,
     "chapter_retry": 2,
     "request_timeout": 30,

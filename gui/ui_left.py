@@ -154,15 +154,15 @@ class LeftPanel(QWidget):
         self.input_stack.addWidget(manual_page)  # index 0 = manual
         self.input_stack.addWidget(auto_page)    # index 1 = auto
 
-        # ================= CHECKBOX + SETTINGS =================
+        # ================= CHECKBOX SHUTDOWN + BTN SETTINGS =================
         settings_row = QWidget()
         settings_layout = QHBoxLayout(settings_row)
         settings_layout.setContentsMargins(0, 0, 0, 0)
         settings_layout.setSpacing(6)
 
-        checkbox_col = QVBoxLayout()
-        checkbox_col.setContentsMargins(0, 0, 0, 0)
-        checkbox_col.setSpacing(6)
+        checkbox_shutdown_col = QVBoxLayout()
+        checkbox_shutdown_col.setContentsMargins(0, 0, 0, 0)
+        checkbox_shutdown_col.setSpacing(6)
 
         self.shutdown_cb = make_checkbox(tr("shutdown_after_done"))
         shutdown_saved = self.settings.value("shutdown_after_done", False, type=bool)
@@ -193,27 +193,64 @@ class LeftPanel(QWidget):
         shutdown_row_layout.addWidget(self.shutdown_delay_unit)
         shutdown_row_layout.addStretch()
 
-        self.auto_queue_cb = make_checkbox(tr("auto_queue"))
-        auto_queue_saved = self.settings.value("auto_queue", False, type=bool)
-        self.auto_queue_cb.setChecked(auto_queue_saved)
-        self.auto_queue_cb.toggled.connect(self.on_auto_queue_toggled)
+        checkbox_shutdown_col.addWidget(shutdown_row, 0, Qt.AlignmentFlag.AlignLeft)
+
+        self.btn_settings = QPushButton(tr("settings"))
+        self.btn_settings.setFixedWidth(SIDE_BUTTON_WIDTH)
+        self.btn_settings.clicked.connect(self.open_settings)
+
+        settings_layout.addLayout(checkbox_shutdown_col, 1)
+        settings_layout.addWidget(self.btn_settings)
+        settings_layout.setAlignment(self.btn_settings, Qt.AlignmentFlag.AlignTop)
+
+        # ================= CHECKBOX PDF + BTN VERSION =================
+        version_row = QWidget()
+        version_layout = QHBoxLayout(version_row)
+        version_layout.setContentsMargins(0, 0, 0, 0)
+        version_layout.setSpacing(6)
+
+        checkbox_pdf_col = QVBoxLayout()
+        checkbox_pdf_col.setContentsMargins(0, 0, 0, 0)
+        checkbox_pdf_col.setSpacing(6)
 
         # Engine-visible option, so it lives in config.json rather than QSettings.
         self.pdf_cb = make_checkbox(tr("convert_to_pdf"))
         self.pdf_cb.setChecked(bool(CONFIG.get("convert_to_pdf", False)))
         self.pdf_cb.toggled.connect(self.on_convert_to_pdf_toggled)
 
-        checkbox_col.addWidget(shutdown_row, 0, Qt.AlignmentFlag.AlignLeft)
-        checkbox_col.addWidget(self.pdf_cb, 0, Qt.AlignmentFlag.AlignLeft)
-        checkbox_col.addWidget(self.auto_queue_cb, 0, Qt.AlignmentFlag.AlignLeft)
+        checkbox_pdf_col.addWidget(self.pdf_cb, 0, Qt.AlignmentFlag.AlignLeft)
 
-        self.btn_settings = QPushButton(tr("settings"))
-        self.btn_settings.setFixedWidth(SIDE_BUTTON_WIDTH)
-        self.btn_settings.clicked.connect(self.open_settings)
+        self.btn_version = QPushButton(tr("version"))
+        self.btn_version.setFixedWidth(SIDE_BUTTON_WIDTH)
 
-        settings_layout.addLayout(checkbox_col, 1)
-        settings_layout.addWidget(self.btn_settings)
-        settings_layout.setAlignment(self.btn_settings, Qt.AlignmentFlag.AlignTop)
+        version_layout.addLayout(checkbox_pdf_col, 1)
+        version_layout.addWidget(self.btn_version)
+        version_layout.setAlignment(self.btn_version, Qt.AlignmentFlag.AlignTop)
+
+        # ================= CHECKBOX ADD QUEUE + BTN ABOUT =================
+        about_row = QWidget()
+        about_layout = QHBoxLayout(about_row)
+        about_layout.setContentsMargins(0, 0, 0, 0)
+        about_layout.setSpacing(6)
+
+        checkbox_add_queue_col = QVBoxLayout()
+        checkbox_add_queue_col.setContentsMargins(0, 0, 0, 0)
+        checkbox_add_queue_col.setSpacing(6)
+
+        self.auto_queue_cb = make_checkbox(tr("auto_queue"))
+        auto_queue_saved = self.settings.value("auto_queue", False, type=bool)
+        self.auto_queue_cb.setChecked(auto_queue_saved)
+        self.auto_queue_cb.toggled.connect(self.on_auto_queue_toggled)
+
+        checkbox_add_queue_col.addWidget(self.auto_queue_cb, 0, Qt.AlignmentFlag.AlignLeft)
+
+        # The About button sits on this row, at the far right of the checkboxes.
+        self.btn_about = QPushButton(tr("about"))
+        self.btn_about.setFixedWidth(SIDE_BUTTON_WIDTH)
+
+        about_layout.addLayout(checkbox_add_queue_col, 1)
+        about_layout.addWidget(self.btn_about)
+        about_layout.setAlignment(self.btn_about, Qt.AlignmentFlag.AlignTop)
 
         # ================= PATH AREA =================
         path_area = QWidget()
@@ -259,12 +296,9 @@ class LeftPanel(QWidget):
             QHeaderView.ResizeMode.ResizeToContents,
         )
 
-        # ================= ADD QUEUE / ABOUT BUTTONS =================
+        # ================= ADD QUEUE BUTTON =================
         self.btn_add = QPushButton(tr("add_queue"))
         self.btn_add.setDisabled(True)
-
-        self.btn_about = QPushButton(tr("about"))
-        self.btn_about.setFixedWidth(SIDE_BUTTON_WIDTH)
 
         # ================= HEADER PANEL =================
         self.chapter_header = QWidget()
@@ -325,17 +359,11 @@ class LeftPanel(QWidget):
         layout.addWidget(self.input_stack, 0)
         layout.addWidget(path_area, 0)
         layout.addWidget(settings_row, 0)
+        layout.addWidget(version_row, 0)
+        layout.addWidget(about_row, 0)
 
-        # Add Queue + About share one row. Add Queue stretches, so its width
-        # matches the path text box (which also stretches next to the 80px
-        # Folder button); About is 80px like Paste/Folder/Settings.
-        add_row = QWidget()
-        add_row_layout = QHBoxLayout(add_row)
-        add_row_layout.setContentsMargins(0, 0, 0, 0)
-        add_row_layout.setSpacing(6)
-        add_row_layout.addWidget(self.btn_add, 1)
-        add_row_layout.addWidget(self.btn_about)
-        layout.addWidget(add_row, 0)
+        # Add Queue spans the whole left panel (About moved up to the checkboxes).
+        layout.addWidget(self.btn_add, 0)
 
         layout.addWidget(self.detail_chapter, 1)
 
@@ -343,6 +371,7 @@ class LeftPanel(QWidget):
         self.btn_folder.clicked.connect(self.pick_folder)
         self.btn_pick_file.clicked.connect(self.pick_file)
         self.btn_about.clicked.connect(self.open_about)
+        self.btn_version.clicked.connect(self.open_version)
         self.url_input.textChanged.connect(lambda _=None: self._update_add_button())
         self.file_input.textChanged.connect(lambda _=None: self._update_add_button())
         self._on_mode_changed(self.rb_manual.isChecked())
@@ -411,6 +440,7 @@ class LeftPanel(QWidget):
         self.btn_settings.setText(tr("settings"))
         self.btn_add.setText(tr("add_queue"))
         self.btn_about.setText(tr("about"))
+        self.btn_version.setText(tr("version"))
         self.auto_queue_cb.setText(tr("auto_queue"))
         self.pdf_cb.setText(tr("convert_to_pdf"))
         self.shutdown_cb.setText(tr("shutdown_after_done"))
@@ -433,6 +463,15 @@ class LeftPanel(QWidget):
     # =========================
     def open_about(self):
         dialog = _AboutDialog(self)
+        dialog.exec()
+
+    # =========================
+    # VERSION / UPDATE MODAL
+    # =========================
+    def open_version(self):
+        from gui.version_dialog import VersionDialog
+
+        dialog = VersionDialog(self)
         dialog.exec()
 
     # =========================

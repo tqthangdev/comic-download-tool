@@ -66,33 +66,6 @@ echo "=== Installing Playwright Chromium ==="
 "$PYTHON" -m playwright install chromium
 
 # ==========================================
-# CONFIG TEMPLATE
-# ==========================================
-
-# data/config.json is runtime state (gitignored), so a fresh checkout has no
-# copy of it. Seed one from the app's own defaults so the build can still bundle
-# a starter config — the app copies it next to the executable on first run.
-if [ ! -f "$PROJECT_DIR/data/config.json" ]; then
-    echo
-    echo "=== Seeding data/config.json from defaults ==="
-
-    "$PYTHON" - <<'PY'
-import json
-import pathlib
-
-from core.utils import DEFAULT_CONFIG
-
-path = pathlib.Path("data/config.json")
-path.parent.mkdir(parents=True, exist_ok=True)
-path.write_text(
-    json.dumps(DEFAULT_CONFIG, indent=4, ensure_ascii=False) + "\n",
-    encoding="utf-8",
-)
-print("wrote", path)
-PY
-fi
-
-# ==========================================
 # VERIFY
 # ==========================================
 
@@ -100,7 +73,7 @@ echo
 echo "=== Verify project ==="
 
 test -f run.py
-test -f data/config.json
+test -f version.json
 test -f assets/icon.png
 
 # ==========================================
@@ -140,7 +113,7 @@ datas = [
         "assets",
     ),
     (
-        str(BASE_DIR / "data" / "config.json"),
+        str(BASE_DIR / "version.json"),
         ".",
     ),
     (

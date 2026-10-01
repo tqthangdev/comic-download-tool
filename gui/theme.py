@@ -308,6 +308,13 @@ QComboBox QAbstractItemView {
     selection-color: #1e1e1e;
     outline: none;
 }
+QTextEdit {
+    background-color: #1e1e1e;
+    border: 1px solid #ffffff;
+    border-radius: 0px;
+    padding: 4px 6px;
+    color: #e0e0e0;
+}
 """)
 
 # Section titles: large (manga title, left panel) / small (help dialog).
