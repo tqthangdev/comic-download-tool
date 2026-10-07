@@ -150,7 +150,7 @@ TRANSLATIONS = {
         # Common
         "app_title": "Comic Download Tool",
         "paste": "Paste",
-        "folder": "Folder",
+        "folder": "Browser",
         "settings": "Settings",
         "mode": "Mode:",
         "mode_manual": "Manual",
@@ -212,7 +212,7 @@ TRANSLATIONS = {
         "url_placeholder": "Paste comic link...",
         "path_placeholder": "Save path...",
         "file_placeholder": "Choose a file containing a list of links...",
-        "file_pick": "Folder",
+        "file_pick": "Browser",
         "file_pick_title": "Choose a file containing a list of links",
         "file_empty": "No file selected! Please choose a file first.",
         "file_no_links": "The file does not contain any valid links.",
