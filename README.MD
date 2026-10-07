@@ -32,7 +32,7 @@ powershell -ExecutionPolicy Bypass -File setup.ps1
 ### Manual Installation
 
 ```bash
-pip install -r requirements.txt
+pip install -e .
 python -m playwright install chromium
 ```
 
@@ -68,21 +68,21 @@ Settings are stored in `data/config.json`, created automatically next to the app
 
 ## Build
 
-**Linux / macOS:**
+Build a standalone onedir bundle (`dist/ComicDownloadTool/`) with the cross-platform build script:
 
 ```bash
-chmod +x build.sh
-./build.sh
+python build.py
 ```
 
-**Windows:**
+Run it with any Python 3.10+ interpreter — it creates or reuses the project `.venv`, installs the dependencies declared in `pyproject.toml`, downloads Playwright Chromium, and packages the app with PyInstaller.
 
-```powershell
-.\build.ps1
-```
-*(If execution is blocked: `Set-ExecutionPolicy -Scope Process Bypass` first)*
+| Option | Description |
+| :--- | :--- |
+| `--skip-browsers` | Reuse the Chromium already downloaded |
+| `--name <name>` | Custom executable name (default `ComicDownloadTool`) |
+| `--no-venv` | Build with the current interpreter instead of the project venv |
 
-The build script sets up the environment, installs Playwright Chromium, packages the app with PyInstaller into `dist/ComicDownloadTool/`, and cleans up temp files.
+The whole `dist/ComicDownloadTool/` folder is the distributable unit — the executable plus `_internal/` (assets, `version.json`, Playwright driver and Chromium).
 
 ## Disclaimer
 

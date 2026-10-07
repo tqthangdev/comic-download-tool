@@ -1,0 +1,54 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "comic-download-tool"
+# Packaging metadata only — the runtime version the app and the updater read
+# lives in version.json, which is bundled next to the executable.
+version = "1.0.2"
+description = "Heuristic comic crawler and downloader desktop app (PyQt6)."
+readme = "README.MD"
+requires-python = ">=3.10"
+authors = [{ name = "Comic Download Tool" }]
+dependencies = [
+    # Core crawling
+    "aiohttp",
+    "beautifulsoup4",
+    "lxml",
+    "requests",
+    "nodriver",
+    # GUI
+    "PyQt6",
+    "qasync",
+    # Browser rendering
+    "playwright",
+    # PDF export ("Convert to PDF"): img2pdf embeds JPEG pages losslessly and
+    # uses Pillow as its backend for the other image formats a chapter can hold.
+    "img2pdf",
+    "Pillow",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-qt>=4.4",
+]
+build = [
+    "pyinstaller>=6.0",
+]
+
+[project.gui-scripts]
+comic-download-tool = "run:main"
+
+[tool.setuptools]
+py-modules = ["run"]
+
+# core/ and gui/ are implicit namespace packages (no __init__.py), so the finder
+# has to be told to include them; updater/ and its siblings are regular packages.
+[tool.setuptools.packages.find]
+include = ["core*", "gui*", "updater*"]
+namespaces = true
+
+[tool.pytest.ini_options]
+qt_api = "pyqt6"

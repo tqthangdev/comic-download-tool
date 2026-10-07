@@ -83,6 +83,7 @@ temp/
 build/
 dist/
 *.spec.bak
+*.egg-info/
 
 # PyInstaller
 

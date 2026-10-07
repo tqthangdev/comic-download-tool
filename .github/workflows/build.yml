@@ -38,45 +38,13 @@ jobs:
 
 
       # ==========================================
-      # PATCH NODRIVER
-      # ==========================================
-
-      - name: Patch nodriver UTF-8 encoding
-        shell: bash
-        run: |
-          set -e
-
-          # Some nodriver cdp modules ship latin-1 bytes in comments, which makes
-          # Python raise "SyntaxError: Non-UTF-8 code starting with '\xb1'" on
-          # import and breaks PyInstaller's dependency analysis. The build scripts
-          # also patch their own venv; running it here as well keeps CI explicit
-          # and robust. Safe to run repeatedly.
-          python -m pip install nodriver
-
-          NODRIVER_DIR="$(
-            python -c "import sysconfig, os; print(os.path.join(sysconfig.get_paths()['purelib'], 'nodriver'))"
-          )"
-
-          python lib/fix_nodriver.py "$NODRIVER_DIR"
-
-
-      # ==========================================
       # BUILD
       # ==========================================
 
-      - name: Build Linux
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          chmod +x build.sh
-          ./build.sh
-
-
-      - name: Build Windows
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          .\build.ps1
+      # build.py creates/enters the project venv, installs the dependencies from
+      # pyproject.toml, patches nodriver, downloads Chromium, and runs PyInstaller.
+      - name: Build
+        run: python build.py
 
 
       # ==========================================

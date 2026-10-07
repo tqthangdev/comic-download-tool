@@ -7,7 +7,7 @@
 #    1. Creates a virtual environment (.venv) — if the system
 #       cannot create one it falls back to installing packages
 #       into vendor/.
-#    2. Installs the dependencies listed in requirements.txt.
+#    2. Installs the dependencies listed in pyproject.toml.
 #    3. Downloads Chromium for Playwright into ms-playwright/.
 #
 #  Usage:
@@ -41,9 +41,9 @@ echo
 echo "Python: $($PYTHON_BIN --version 2>/dev/null || echo 'not found')"
 echo "OS: $(uname -s)"
 
-if [ ! -f "requirements.txt" ]; then
+if [ ! -f "pyproject.toml" ]; then
     echo
-    echo "ERROR: requirements.txt was not found in the project folder."
+    echo "ERROR: pyproject.toml was not found in the project folder."
     exit 1
 fi
 
@@ -78,9 +78,9 @@ echo
 echo "[2/3] Installing dependencies..."
 "$PY" -m pip install --upgrade pip
 if [ "$VENV_MODE" = "vendor" ]; then
-    "$PY" -m pip install --target "$VENDOR_DIR" -r requirements.txt
+    "$PY" -m pip install --target "$VENDOR_DIR" .
 else
-    "$PY" -m pip install -r requirements.txt
+    "$PY" -m pip install -e .
 fi
 
 # ---- Fix nodriver's UTF-8 bug (cdp/network.py contains latin-1 bytes) ----

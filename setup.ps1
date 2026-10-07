@@ -80,9 +80,9 @@ if (-not $PythonExe) {
     $PythonArgs = @()
 }
 
-if (-not (Test-Path (Join-Path $PSScriptRoot "requirements.txt"))) {
+if (-not (Test-Path (Join-Path $PSScriptRoot "pyproject.toml"))) {
     Write-Host ""
-    Write-Host "ERROR: requirements.txt was not found in the project folder."
+    Write-Host "ERROR: pyproject.toml was not found in the project folder."
     exit 1
 }
 
@@ -115,11 +115,10 @@ if ($VenvMode -eq "venv") {
 # ================= 2. INSTALL DEPENDENCIES =================
 Write-Step "[2/3] Installing dependencies..."
 & $PythonExe @PythonArgs -m pip install --upgrade pip
-$req = Join-Path $PSScriptRoot "requirements.txt"
 if ($VenvMode -eq "vendor") {
-    & $PythonExe @PythonArgs -m pip install --target $VENDOR_DIR -r $req
+    & $PythonExe @PythonArgs -m pip install --target $VENDOR_DIR .
 } else {
-    & $PythonExe @PythonArgs -m pip install -r $req
+    & $PythonExe @PythonArgs -m pip install -e .
 }
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
