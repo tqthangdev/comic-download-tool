@@ -135,10 +135,19 @@ class MainWindow(QWidget):
         # Apply the saved theme app-wide; rebuild the menu when it (or the OS
         # colour scheme) changes, so the Theme check marks stay correct.
         theme.apply()
-        theme.add_listener(self._build_menu)
+        theme.add_listener(self._on_theme_changed)
 
         # Wait for the window to finish rendering
         QTimer.singleShot(100, self._start_restore)
+
+    def _on_theme_changed(self):
+        """Theme switched: refresh the menu check marks and repaint the queue.
+
+        The queue rows are painted by hand (QueueDelegate), so they have to be
+        redrawn to pick up the new colours.
+        """
+        self._build_menu()
+        self.right.queue_list.viewport().update()
 
     # =========================
     # MENU BAR
@@ -355,6 +364,10 @@ class MainWindow(QWidget):
                 # User cancelled the login prompt — abort loading this URL.
                 return
 
+        # Each new story starts on the default format (`pdf_cb`); the preview's
+        # combobox then overrides it for this one job only.
+        self.left.apply_default_format()
+
         self.left.on_loading(True)
 
         try:
@@ -502,6 +515,7 @@ class MainWindow(QWidget):
                 genres=loaded.get("genres") or None,
                 site_id=site_id,
                 engine=self._loaded_engine,
+                convert_to_pdf=self.left.wants_pdf(),
             )
 
             # FIX: no longer guess "already_queued" from the UI list; let
@@ -662,6 +676,8 @@ class MainWindow(QWidget):
                     genres=data.get("genres") or None,
                     site_id=site_id,
                     engine=engine_name,
+                    # File-added jobs use the default format (`pdf_cb`).
+                    convert_to_pdf=bool(CONFIG.get("convert_to_pdf", False)),
                 )
 
                 async with db_lock:

@@ -197,12 +197,10 @@ class LeftPanel(QWidget):
         # events that only affect this panel's own widgets
         self.btn_folder.clicked.connect(self.pick_folder)
         self.url_input.textChanged.connect(lambda _=None: self._update_add_button())
-        # pdf_cb (persisted) drives the preview's format combobox; changing the
-        # combobox writes the setting back, so the two stay in sync.
-        self.preview.format_combo.currentIndexChanged.connect(self._on_format_changed)
-        self.preview.set_output_format(
-            PDF_FORMAT if self.pdf_cb.isChecked() else IMAGE_FORMAT
-        )
+        # `pdf_cb` is only the DEFAULT format: it seeds the preview's combobox
+        # for each story, so a PDF-only user never has to touch it. The combobox
+        # then picks the format for that one job.
+        self.preview.set_output_format(self.default_format())
 
     # =========================
     # SAVE THE SELECTED PATH (for the next run)
@@ -243,22 +241,29 @@ class LeftPanel(QWidget):
             return 60
 
     # =========================
-    # OUTPUT FORMAT (checkbox <-> preview combobox, one config key)
+    # OUTPUT FORMAT
     # =========================
-    def on_convert_to_pdf_toggled(self, checked):
-        """Persist to config.json — the engine reads it to build the PDFs."""
-        self._set_convert_to_pdf(checked)
-        self.preview.format_combo.blockSignals(True)
-        self.preview.set_output_format(PDF_FORMAT if checked else IMAGE_FORMAT)
-        self.preview.format_combo.blockSignals(False)
+    def default_format(self) -> str:
+        """The format new jobs start from (`pdf_cb`, persisted in config.json)."""
+        return PDF_FORMAT if self.pdf_cb.isChecked() else IMAGE_FORMAT
 
-    def _on_format_changed(self):
-        want_pdf = self.preview.output_format() == PDF_FORMAT
-        if want_pdf != self.pdf_cb.isChecked():
-            self.pdf_cb.blockSignals(True)
-            self.pdf_cb.setChecked(want_pdf)
-            self.pdf_cb.blockSignals(False)
-        self._set_convert_to_pdf(want_pdf)
+    def output_format(self) -> str:
+        """The format picked in the preview — the format of the loaded job."""
+        return self.preview.output_format()
+
+    def wants_pdf(self) -> bool:
+        """True when the loaded story should be converted to PDF."""
+        return self.output_format() == PDF_FORMAT
+
+    def apply_default_format(self) -> None:
+        """Reset the preview to the default (called for each new story)."""
+        self.preview.set_output_format(self.default_format())
+
+    def on_convert_to_pdf_toggled(self, checked):
+        """`pdf_cb` is the default: persist it and reflect it on the preview of
+        the story currently loaded."""
+        self._set_convert_to_pdf(checked)
+        self.preview.set_output_format(PDF_FORMAT if checked else IMAGE_FORMAT)
 
     def _set_convert_to_pdf(self, checked: bool):
         new_config = dict(CONFIG)

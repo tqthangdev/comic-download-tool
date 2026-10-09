@@ -479,16 +479,32 @@ class Engine(QObject):
                 raise
 
             if outcome.status != FAILED or attempt + 1 >= len(plan):
+                # Build the PDFs once the backend has finished. Done here (not
+                # in a backend) so it applies to native and gallery-dl alike.
+                if outcome.status in (DONE, DONE_WITH_MISSING) and self._wants_pdf(job):
+                    await self._build_chapter_pdfs(job)
                 return outcome, name
 
             await self.db.aupdate_engine_error(job.url, "download failed")
 
         raise last_error or BackendError("download failed")
 
+    @staticmethod
+    def _wants_pdf(job) -> bool:
+        """Whether this job's output should be PDF.
+
+        The format is per job (the preview's format picker); jobs stored before
+        it existed fall back to the global default (`pdf_cb`).
+        """
+        if job.convert_to_pdf is not None:
+            return bool(job.convert_to_pdf)
+        return bool(CONFIG.get("convert_to_pdf", False))
+
     async def download_job(self, job, data):
         await self._download_thumb(job, data)
         await self._save_genres(job, data)
         referer = data.get("referer") or ""
+        use_pdf = self._wants_pdf(job)
 
         chapters = list(reversed(data["chapters"]))
         total_chap = len(chapters)
@@ -516,7 +532,7 @@ class Engine(QObject):
 
             # In "Convert to PDF" mode the PDF is the finished artifact, so a
             # chapter that already has one is done — skip fetching its images.
-            if CONFIG.get("convert_to_pdf", False) and (
+            if use_pdf and (
                 job.save_path / f"{chap_folder_name}.pdf"
             ).exists():
                 if self.running:
@@ -593,9 +609,6 @@ class Engine(QObject):
                 logger.warning(
                     f"[{job.title}] Chapter {chap['title']}: {len(missing_urls)} missing images: {missing_urls}"
                 )
-
-        if CONFIG.get("convert_to_pdf", False):
-            await self._build_chapter_pdfs(job)
 
         return has_failed, has_missing, missing_details
 

@@ -24,6 +24,7 @@ class Job:
     engine: str = field(default=None)     # backend actually used: "native" / "gallerydl"
     engine_fallback_used: int = field(default=None)  # 1 when the job was retried on the other engine
     engine_error: str = field(default=None)          # last engine error (debug / tooltip)
+    convert_to_pdf: bool = field(default=None)       # per-job output format (None = config default)
 
 
 class JobManager:
@@ -111,6 +112,11 @@ class JobManager:
                     "ALTER TABLE jobs ADD COLUMN engine_error TEXT"
                 )
                 self.conn.commit()
+            if "convert_to_pdf" not in cols:
+                self.conn.execute(
+                    "ALTER TABLE jobs ADD COLUMN convert_to_pdf INTEGER"
+                )
+                self.conn.commit()
 
     # ------------------------------------------------------------------
     # CRUD (synchronous - kept for internal use / startup, not the hot path)
@@ -170,18 +176,22 @@ class JobManager:
             engine=row["engine"],
             engine_fallback_used=row["engine_fallback_used"],
             engine_error=row["engine_error"],
+            convert_to_pdf=(
+                None if row["convert_to_pdf"] is None else bool(row["convert_to_pdf"])
+            ),
         )
 
     def add(self, job: Job):
         with self._lock:
             self.conn.execute(
                 """
-                INSERT OR IGNORE INTO jobs (url, title, save_path, status, current_chap, chapters, thumb, referer, site_id, genres, engine)
-                VALUES (?, ?, ?, 'waiting', NULL, ?, ?, ?, ?, ?, ?)
+                INSERT OR IGNORE INTO jobs (url, title, save_path, status, current_chap, chapters, thumb, referer, site_id, genres, engine, convert_to_pdf)
+                VALUES (?, ?, ?, 'waiting', NULL, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (job.url, job.title, str(job.save_path),
                  self._chapters_to_json(job.chapters), job.thumb, job.referer, job.site_id,
-                 self._genres_to_json(job.genres), job.engine),
+                 self._genres_to_json(job.genres), job.engine,
+                 None if job.convert_to_pdf is None else int(bool(job.convert_to_pdf))),
             )
             self.conn.commit()
 

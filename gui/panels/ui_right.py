@@ -12,6 +12,7 @@ from PyQt6.QtCore import QSize, Qt, pyqtSignal
 
 from gui.panels.queue_delegate import QueueDelegate
 from core.i18n import tr
+from core.utils import CONFIG
 
 
 class RightPanel(QWidget):
@@ -123,12 +124,22 @@ class RightPanel(QWidget):
                 "path": str(job.save_path),
                 "chapters": job.chapters,
                 "referer": job.referer,
+                "convert_to_pdf": self._job_pdf(job),
             }
         )
         self._apply_error_tooltip(item, job)
 
         self.queue_list.addItem(item)
         self._update_queue_group()
+
+    @staticmethod
+    def _job_pdf(job) -> bool:
+        """The job's output format, for the row's format tag (legacy jobs fall
+        back to the config default)."""
+        value = getattr(job, "convert_to_pdf", None)
+        if value is None:
+            return bool(CONFIG.get("convert_to_pdf", False))
+        return bool(value)
 
     @staticmethod
     def _apply_error_tooltip(item, job):
@@ -149,6 +160,7 @@ class RightPanel(QWidget):
             if data["url"] != job.url:
                 continue
             data["status"] = status
+            data["convert_to_pdf"] = self._job_pdf(job)
             item.setData(Qt.ItemDataRole.UserRole, data)
             self._apply_error_tooltip(item, job)
             break

@@ -1,8 +1,10 @@
 from PyQt6.QtWidgets import QStyledItemDelegate
-from PyQt6.QtGui import QColor, QFontMetrics, QPixmap
+from PyQt6.QtGui import QColor, QFont, QFontMetrics, QPixmap
 from PyQt6.QtCore import Qt, QRect, QEvent, pyqtSignal
 
+from core.i18n import tr
 from core.utils import get_resource_path
+from gui import theme
 
 
 class QueueDelegate(QStyledItemDelegate):
@@ -94,6 +96,7 @@ class QueueDelegate(QStyledItemDelegate):
 
         title = data["title"]
         status = data["status"]
+        palette = theme.palette()
 
         painter.save()
 
@@ -123,41 +126,61 @@ class QueueDelegate(QStyledItemDelegate):
             rect.height() - line_height,
         )
 
-        # elide the title if it is too long so it does not overflow the row
-        metrics = QFontMetrics(painter.font())
+        # ================= TITLE + FORMAT TAG =================
+        base_font = painter.font()
+        metrics = QFontMetrics(base_font)
+
+        # A small tag at the right end of the title line shows the job's output
+        # format (PDF stands out in the accent colour, Image stays muted).
+        is_pdf = bool(data.get("convert_to_pdf"))
+        tag = tr("format_pdf") if is_pdf else tr("format_image")
+        tag_font = QFont(base_font)
+        tag_font.setPointSizeF(max(6.0, base_font.pointSizeF() - 1))
+        tag_width = QFontMetrics(tag_font).horizontalAdvance(tag) + 8
+
+        # elide the title so it does not run under the format tag
         elided_title = metrics.elidedText(
             title,
             Qt.TextElideMode.ElideRight,
-            title_rect.width()
+            max(0, title_rect.width() - tag_width)
         )
 
-        painter.setPen(QColor("#e0e0e0"))
+        painter.setPen(QColor(palette["fg_strong"]))
         painter.drawText(
             title_rect,
             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
             elided_title
         )
 
+        painter.setFont(tag_font)
+        painter.setPen(QColor(palette["fg_muted"]))
+        painter.drawText(
+            title_rect,
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+            tag
+        )
+        painter.setFont(base_font)
+
         # ================= STATUS =================
         match status:
             case "Done" | "Finished":
-                color = "#2196F3"
+                color = palette["st_done"]
             case "Done with missing images" | "Done with missing":
-                color = "#FF9800"
+                color = palette["st_missing"]
             case "Waiting":
-                color = "#FFC107"
+                color = palette["st_waiting"]
             case "Error" | "Failed":
-                color = "#F44336"
+                color = palette["st_error"]
             case "Resume":
-                color = "#4CAF50"
+                color = palette["st_active"]
             case "Paused":
-                color = "#9E9E9E"
+                color = palette["st_paused"]
             case s if s.startswith("Downloading"):
-                color = "#4CAF50"
+                color = palette["st_active"]
             case s if s.startswith("Converting"):
-                color = "#4CAF50"
+                color = palette["st_active"]
             case _:
-                color = "#e0e0e0"
+                color = palette["fg"]
 
         painter.setPen(QColor(color))
 

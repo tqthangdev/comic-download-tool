@@ -54,6 +54,13 @@ def _dark() -> dict:
         "title": "#ff9800",
         "sel_bg": "#4fc3f7",
         "sel_fg": "#1e1e1e",
+        # Queue row status colours
+        "st_done": "#2196F3",
+        "st_missing": "#FF9800",
+        "st_waiting": "#FFC107",
+        "st_error": "#F44336",
+        "st_active": "#4CAF50",
+        "st_paused": "#9E9E9E",
         "menu_bg": "#2a2a2a",
         "menu_hover_bg": "#4CAF50",
         "menu_hover_fg": "#1e1e1e",
@@ -92,6 +99,13 @@ def _light() -> dict:
         "title": "#e65100",
         "sel_bg": "#1976d2",
         "sel_fg": "#ffffff",
+        # Queue row status colours (darker so they read on a light background)
+        "st_done": "#1565C0",
+        "st_missing": "#E65100",
+        "st_waiting": "#9A6B00",
+        "st_error": "#C62828",
+        "st_active": "#2E7D32",
+        "st_paused": "#757575",
         "menu_bg": "#ffffff",
         "menu_hover_bg": "#1976d2",
         "menu_hover_fg": "#ffffff",
@@ -218,7 +232,29 @@ QLabel#dialog_title { font-size: 14px; font-weight: bold; color: $title; }
 /* ---------- queue list ---------- */
 QWidget#queue_list {
     background: transparent;
-    border: 1px solid $border_soft;
+    border: 1.5px solid $border_soft;
+    border-radius: 4px;
+}
+/* Keep the scrollbar clear of the rounded corners: no arrow blocks (they are
+   opaque and sit right on the corner), a slim rounded handle and a small inset. */
+QWidget#queue_list QScrollBar:vertical {
+    background: transparent;
+    width: 10px;
+    border-radius: 4px;
+    margin: 2px 2px 2px 0px;
+}
+QWidget#queue_list QScrollBar::handle:vertical {
+    background: $scroll_handle;
+    min-height: 30px;
+}
+QWidget#queue_list QScrollBar::add-line:vertical,
+QWidget#queue_list QScrollBar::sub-line:vertical {
+    height: 0px;
+    background: transparent;
+}
+QWidget#queue_list QScrollBar::add-page:vertical,
+QWidget#queue_list QScrollBar::sub-page:vertical {
+    background: transparent;
 }
 
 /* ---------- progress bar ---------- */
@@ -401,6 +437,7 @@ def build_stylesheet(palette: dict) -> str:
 # ---------------------------------------------------------------------------
 
 _listeners: list[Callable[[], None]] = []
+_palette_cache: dict = {}
 _watch_installed = False
 
 
@@ -427,7 +464,13 @@ def effective_name() -> str:
 
 
 def palette() -> dict:
-    return PALETTES[effective_name()]()
+    """The active palette (cached per theme — read on every repaint)."""
+    name = effective_name()
+    cached = _palette_cache.get(name)
+    if cached is None:
+        cached = PALETTES[name]()
+        _palette_cache[name] = cached
+    return cached
 
 
 def add_listener(callback: Callable[[], None]) -> None:
