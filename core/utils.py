@@ -110,6 +110,8 @@ DEFAULT_CONFIG = {
     "download_thumb": True,
     "download_genres": True,
     "convert_to_pdf": False,
+    # UI theme: "system" (follow the OS), "light" or "dark".
+    "theme": "system",
     # Download engine. "native" = heuristic scraper + aiohttp downloader;
     # "gallerydl" = the gallery-dl subprocess backend. engine_overrides maps a
     # domain to the engine to use for it (e.g. {"example.com": "gallerydl"}).

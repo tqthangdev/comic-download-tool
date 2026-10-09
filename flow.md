@@ -50,18 +50,19 @@ comic-download-tool/
 │       └── sites_config.json  # Per-site login config
 │
 ├── gui/                    # PyQt6 UI
-│   ├── main_window.py      # MainWindow: paste/load/add/start, restore, shutdown, messages
+│   ├── main_window.py      # MainWindow: menu bar, paste/load/add/start, restore, shutdown
 │   ├── panels/             #   Main-window panels
-│   │   ├── ui_left.py      #     LeftPanel (URL, mode, engine, path, preview) + Config/Help/About
+│   │   ├── ui_left.py      #     LeftPanel (URL, path, options, Add Queue) + Settings/Help/About
+│   │   ├── preview_chapter.py #  Preview: cover + title, output format, chapter tree
 │   │   ├── ui_right.py     #     RightPanel (queue list, start/pause/resume/clear buttons)
-│   │   └── queue_delegate.py #   Queue row painting (progress, engine tag, trash button)
+│   │   └── queue_delegate.py #   Queue row painting (progress, trash button)
 │   ├── dialogs/            #   Modal dialogs
 │   │   ├── add_jobs_dialog.py  # Progress modal while importing links from a file
 │   │   ├── restore_dialog.py   # Progress modal while restoring the previous session
 │   │   ├── login_dialog.py     # Login prompt (prompt_login)
 │   │   └── version_dialog.py   # Version/update modal
 │   ├── cursor_utils.py     # Pointer/forbidden cursors (QSS cannot set cursor)
-│   └── theme.py            # ALL QSS lives here (_resolve_assets() makes urls absolute)
+│   └── theme.py            # ALL QSS lives here: palette-driven light/dark, one app-wide sheet
 │
 ├── assets/                 # Icons and UI chrome
 │   ├── app/                #   icon.png / icon.ico (window + executable icon)
@@ -124,8 +125,7 @@ paste (or URL field changed)
         └─ on_load_chapters(url)
              ├─ site_id = auth_manager.site_id_for_url(url)     # config-driven (core/auth)
              │    └─ if the site needs login and we are not -> prompt_login()
-             ├─ override = LeftPanel engine combo (Auto / Native / gallery-dl)
-             ├─ meta, engine_used = engine.probe(url, site_id, engine=override)
+             ├─ meta, engine_used = engine.probe(url, site_id)   # engine is always "Auto"
              │    └─ selector picks the backend (see "Engines"); native = crawler.get_chapters
              │    ├─ scraper.scrape(url)  -> requests + BeautifulSoup heuristics
              │    │      raise BotProtectionError  # Cloudflare bot wall (403/503)
@@ -344,10 +344,10 @@ Two download backends implement `core/engines/base.py`'s `DownloadBackend`
   layout. Cancelling terminates the subprocess.
 
 Selection order (config `data/config.json`): a per-domain `engine_overrides` entry →
-`engine_default` → the GUI's Engine combo override. When `engine_fallback` is on, a backend that
+`engine_default`. The GUI always runs "Auto" (the Engine combo was removed — the user only
+cares whether a story downloads). When `engine_fallback` is on, a backend that
 errors or finds nothing is retried **once** on the other one (except a Cloudflare bot wall, which
-gallery-dl cannot clear either). The combo and `engine_default` values are `native` / `gallerydl`;
-`engine_overrides` maps a domain, e.g. `{"example.com": "gallerydl"}`.
+gallery-dl cannot clear either). `engine_overrides` maps a domain, e.g. `{"example.com": "gallerydl"}`.
 
 `tools/engine_compare.py` runs the A/B report (plan P1–P3) and prints a Markdown table.
 

@@ -1,4 +1,5 @@
 from PyQt6.QtWidgets import (
+    QGroupBox,
     QWidget,
     QVBoxLayout,
     QHBoxLayout,
@@ -10,7 +11,6 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import QSize, Qt, pyqtSignal
 
 from gui.panels.queue_delegate import QueueDelegate
-from gui.theme import QUEUE_LIST_STYLE
 from core.i18n import tr
 
 
@@ -32,15 +32,25 @@ class RightPanel(QWidget):
 
     def init_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setContentsMargins(6, 6, 6, 6)
+        layout.setSpacing(0)
 
-        # ================= BUTTON ROW (top) =================
+        
+        # ================= QUEUE GROUP =================
+        queue_group = QGroupBox(tr("queue"))
+        queue_layout = QVBoxLayout(queue_group)
+        queue_layout.setContentsMargins(6, 6, 6, 6)
+        queue_layout.setSpacing(6)
+        self.queue_group = queue_group
+
+        # ================= QUEUE BUTTONS =================
         self.btn_start = QPushButton(tr("start"))
         self.btn_resume = QPushButton(tr("resume"))
         self.btn_pause = QPushButton(tr("pause"))
         self.btn_clear = QPushButton(tr("clear_done"))
 
-        btn_row = QHBoxLayout()
+        self.row_buttons = QWidget()
+        btn_row = QHBoxLayout(self.row_buttons)
         btn_row.setContentsMargins(0, 0, 0, 0)
         btn_row.setSpacing(6)
 
@@ -52,39 +62,36 @@ class RightPanel(QWidget):
         # ================= QUEUE LIST =================
         self.queue_list = QListWidget()
         self.queue_list.setObjectName("queue_list")
-        self.queue_list.setStyleSheet(QUEUE_LIST_STYLE)
         self._delegate = QueueDelegate(self.queue_list)
         self.queue_list.setItemDelegate(self._delegate)
         self._delegate.deleteRequested.connect(self.deleteRequested)
-        self.queue_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.queue_list.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
 
-        self.queue_label = QLabel(tr("queue"))
-        self.row_label = self.queue_label
+        # ================= ADD WIDGETS =================
+        queue_layout.addWidget(self.row_buttons)
+        queue_layout.addWidget(self.queue_list, 1)
 
-        self.row_buttons = QWidget()
-        self.row_buttons.setLayout(btn_row)
-
-        layout.addWidget(self.queue_label)
-        layout.addWidget(self.row_buttons)
-        layout.addWidget(self.queue_list)
+        layout.addWidget(queue_group, 1)
 
         self.btn_clear.clicked.connect(self.clear_done)
-        self._update_queue_label()
+        self._update_queue_group()
 
     def retranslate(self):
         self.btn_start.setText(tr("start"))
         self.btn_resume.setText(tr("resume"))
         self.btn_pause.setText(tr("pause"))
         self.btn_clear.setText(tr("clear_done"))
-        self._update_queue_label()
+        self._update_queue_group()
 
-    def _update_queue_label(self):
+    def _update_queue_group(self):
         """Show the queue size in the header ("Queue has N comics")."""
         count = self.queue_list.count()
         if count:
-            self.queue_label.setText(tr("queue_with_count").format(count=count))
+            self.queue_group.setTitle(tr("queue_with_count").format(count=count))
         else:
-            self.queue_label.setText(tr("queue"))
+            self.queue_group.setTitle(tr("queue"))
 
     def exists_in_queue(self, url):
         result = {"exists": False, "data": None}
@@ -116,26 +123,19 @@ class RightPanel(QWidget):
                 "path": str(job.save_path),
                 "chapters": job.chapters,
                 "referer": job.referer,
-                "engine": getattr(job, "engine", None),
             }
         )
-        self._apply_engine_tooltip(item, job)
+        self._apply_error_tooltip(item, job)
 
         self.queue_list.addItem(item)
-        self._update_queue_label()
+        self._update_queue_group()
 
     @staticmethod
-    def _apply_engine_tooltip(item, job):
-        """Tooltip showing which backend the job used and its last error."""
-        engine = getattr(job, "engine", None)
+    def _apply_error_tooltip(item, job):
+        """Tooltip with the job's last error (the backend that produced it is
+        deliberately not named — it is only logged)."""
         error = getattr(job, "engine_error", None)
-        parts = []
-        if engine:
-            parts.append(f"Engine: {engine}")
-        if error:
-            parts.append(f"Error: {error}")
-        if parts:
-            item.setToolTip("\n".join(parts))
+        item.setToolTip(error or "")
 
     def update_queue_item(self, url, job, status):
         result = self.exists_in_queue(job.url)
@@ -149,11 +149,8 @@ class RightPanel(QWidget):
             if data["url"] != job.url:
                 continue
             data["status"] = status
-            engine = getattr(job, "engine", None)
-            if engine:
-                data["engine"] = engine
             item.setData(Qt.ItemDataRole.UserRole, data)
-            self._apply_engine_tooltip(item, job)
+            self._apply_error_tooltip(item, job)
             break
 
         self.queue_list.viewport().update()
@@ -177,7 +174,7 @@ class RightPanel(QWidget):
 
             if data and data.get("url") == url:
                 self.queue_list.takeItem(i)
-                self._update_queue_label()
+                self._update_queue_group()
                 return
 
     def clear_done(self):
@@ -188,4 +185,4 @@ class RightPanel(QWidget):
 
             if data and data.get("status") in ["Done", "Done with missing images"]:
                 self.queue_list.takeItem(i)
-        self._update_queue_label()
+        self._update_queue_group()

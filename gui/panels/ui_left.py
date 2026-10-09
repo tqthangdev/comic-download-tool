@@ -1,7 +1,8 @@
 from pathlib import Path
 
-from PyQt6.QtGui import QMovie, QIntValidator
+from PyQt6.QtGui import QIntValidator
 from PyQt6.QtWidgets import (
+    QGroupBox,
     QWidget,
     QVBoxLayout,
     QHBoxLayout,
@@ -9,8 +10,6 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QCheckBox,
     QLabel,
-    QTreeWidget,
-    QHeaderView,
     QDialog,
     QFormLayout,
     QDialogButtonBox,
@@ -18,31 +17,18 @@ from PyQt6.QtWidgets import (
     QToolButton,
     QRadioButton,
     QButtonGroup,
-    QStackedWidget,
-    QFrame,
     QComboBox,
 )
-from PyQt6.QtCore import Qt, QSize, QSettings
+from PyQt6.QtCore import Qt, QSettings
 
-from core.utils import get_resource_path, CONFIG, save_config
+from core.utils import CONFIG, save_config
 from core.i18n import tr, set_lang, get_lang
 from core.logger import logger
 from gui.cursor_utils import apply_pointer_cursors
-from gui.theme import (
-    RADIO_STYLE,
-    CHECKBOX_STYLE,
-    MANGA_TITLE_STYLE,
-    HELP_TITLE_STYLE,
-    TREE_STYLE,
-    CHAPTER_PANEL_STYLE,
-    CONFIG_DIALOG_STYLE,
-    HELP_BUTTON_STYLE,
-    COMPACT_INPUT_STYLE,
-)
+from gui.panels.preview_chapter import PreviewChapter, IMAGE_FORMAT, PDF_FORMAT
 
 # Shared width for the small buttons on the right of each input row
-# (Paste / Folder / Settings / About). Keeping them equal keeps the rows
-# aligned; the width must fit the longest label ("Giới thiệu").
+# (Paste / Folder...). Keeping them equal keeps the rows aligned.
 SIDE_BUTTON_WIDTH = 90
 
 
@@ -52,7 +38,6 @@ def make_radio_button(text: str) -> QRadioButton:
     looks consistent without repeating the same stylesheet everywhere.
     """
     btn = QRadioButton(text)
-    btn.setStyleSheet(RADIO_STYLE)
     return btn
 
 
@@ -62,18 +47,15 @@ def make_checkbox(text: str) -> QCheckBox:
     looks consistent without repeating the same stylesheet everywhere.
     """
     cb = QCheckBox(text)
-    cb.setStyleSheet(CHECKBOX_STYLE)
     return cb
 
+
 class LeftPanel(QWidget):
-    """
-    Left side of the main window:
-    - Mode selector (manual / auto) + input row (URL/paste or file/choose)
-    - Save path input + folder picker
-    - "Use this path by default" checkbox
-    - Add Queue button
-    - Chapter header (loading spinner, thumbnail, title)
-    - Chapter tree
+    """Left column: the input form (comic URL, save path, options, Add Queue)
+    and the preview area (cover, title, output format, chapter list).
+
+    Everything else — settings, select-files, language, version, about, quit —
+    lives in the main window's menu bar.
     """
 
     def __init__(self, settings: QSettings, parent=None):
@@ -85,50 +67,20 @@ class LeftPanel(QWidget):
 
     def init_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setContentsMargins(6, 6, 6, 6)
+        layout.setSpacing(0)
 
-        # ================= MODE AREA (top, aligned with Queue label) =================
-        self.mode_area = QWidget()
+        # ================= DOWNLOAD SETTINGS =================
+        source_group = QGroupBox(tr("source"))
+        source_layout = QVBoxLayout(source_group)
+        source_layout.setContentsMargins(6, 6, 6, 6)
+        source_layout.setSpacing(6)
 
-        mode_layout = QHBoxLayout(self.mode_area)
-        mode_layout.setContentsMargins(0, 0, 0, 0)
-        mode_layout.setSpacing(6)
-
-        mode_label = QLabel(tr("mode"))
-        self.rb_manual = make_radio_button(tr("mode_manual"))
-        self.rb_auto = make_radio_button(tr("mode_auto"))
-
-        # Default: manual (paste URL) — the historical behavior
-        self.rb_manual.setChecked(True)
-
-        mode_layout.addWidget(mode_label)
-        mode_layout.addWidget(self.rb_manual)
-        mode_layout.addWidget(self.rb_auto)
-        mode_layout.addStretch()
-
-        # Engine selector: Auto lets the selector choose (native first, with
-        # gallery-dl for sites it cannot read); the others pin one backend.
-        self.engine_label = QLabel(tr("engine"))
-        self.engine_combo = QComboBox()
-        self.engine_combo.addItem(tr("engine_auto"), None)
-        self.engine_combo.addItem(tr("engine_native"), "native")
-        self.engine_combo.addItem(tr("engine_gallerydl"), "gallerydl")
-        mode_layout.addWidget(self.engine_label)
-        mode_layout.addWidget(self.engine_combo)
-
-        self.rb_manual.toggled.connect(self._on_mode_changed)
-        self.rb_auto.toggled.connect(self._on_mode_changed)
-
-        # ================= INPUT STACK (manual page / auto page) =================
-        self.input_stack = QStackedWidget()
-        self.input_stack.setFrameShape(QFrame.Shape.NoFrame)
-        self.input_stack.setContentsMargins(0, 0, 0, 0)
-
-        # --- manual page ---
-        manual_page = QWidget()
-        manual_layout = QHBoxLayout(manual_page)
-        manual_layout.setContentsMargins(0, 0, 0, 0)
-        manual_layout.setSpacing(6)
+        # ================= URL ROW =================
+        url_area = QWidget()
+        url_layout = QHBoxLayout(url_area)
+        url_layout.setContentsMargins(0, 0, 0, 0)
+        url_layout.setSpacing(6)
 
         self.url_input = QLineEdit()
         self.url_input.setPlaceholderText(tr("url_placeholder"))
@@ -138,137 +90,14 @@ class LeftPanel(QWidget):
         self.btn_paste = QPushButton(tr("paste"))
         self.btn_paste.setFixedWidth(SIDE_BUTTON_WIDTH)
 
-        manual_layout.addWidget(self.url_input, 1)
-        manual_layout.addWidget(self.btn_paste)
+        url_layout.addWidget(self.url_input, 1)
+        url_layout.addWidget(self.btn_paste)
 
-        # --- auto page ---
-        auto_page = QWidget()
-        auto_layout = QHBoxLayout(auto_page)
-        auto_layout.setContentsMargins(0, 0, 0, 0)
-        auto_layout.setSpacing(6)
+        source_layout.addWidget(url_area)
 
-        self.file_input = QLineEdit()
-        self.file_input.setPlaceholderText(tr("file_placeholder"))
-        self.file_input.setReadOnly(True)
-        self.file_input.setFixedHeight(29)
-
-        # Clicking the readonly textbox is the same as the button
-        self.file_input.mousePressEvent = self._pick_file_for_event
-
-        self.btn_pick_file = QPushButton(tr("file_pick"))
-        self.btn_pick_file.setFixedWidth(SIDE_BUTTON_WIDTH)
-
-        auto_layout.addWidget(self.file_input, 1)
-        auto_layout.addWidget(self.btn_pick_file)
-
-        self.input_stack.addWidget(manual_page)  # index 0 = manual
-        self.input_stack.addWidget(auto_page)    # index 1 = auto
-
-        # ================= CHECKBOX SHUTDOWN + BTN SETTINGS =================
-        settings_row = QWidget()
-        settings_layout = QHBoxLayout(settings_row)
-        settings_layout.setContentsMargins(0, 0, 0, 0)
-        settings_layout.setSpacing(6)
-
-        checkbox_shutdown_col = QVBoxLayout()
-        checkbox_shutdown_col.setContentsMargins(0, 0, 0, 0)
-        checkbox_shutdown_col.setSpacing(6)
-
-        self.shutdown_cb = make_checkbox(tr("shutdown_after_done"))
-        shutdown_saved = self.settings.value("shutdown_after_done", False, type=bool)
-        self.shutdown_cb.setChecked(shutdown_saved)
-        self.shutdown_cb.toggled.connect(self.on_shutdown_toggled)
-
-        # Text box next to the checkbox: countdown (seconds) before shutdown.
-        saved_delay = self.settings.value("shutdown_delay", 60, type=int)
-        self.shutdown_delay = QLineEdit()
-        self.shutdown_delay.setValidator(QIntValidator(1, 3600, self))
-        self.shutdown_delay.setText(str(saved_delay if isinstance(saved_delay, int) else 60))
-        self.shutdown_delay.setFixedSize(38, 22)
-        self.shutdown_delay.setStyleSheet(COMPACT_INPUT_STYLE)
-        self.shutdown_delay.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.shutdown_delay.setToolTip(tr("shutdown_delay_hint"))
-        self.shutdown_delay.editingFinished.connect(self._save_shutdown_delay)
-        self.shutdown_delay.setEnabled(self.shutdown_cb.isChecked())
-
-        self.shutdown_delay_unit = QLabel(tr("shutdown_seconds"))
-        self.shutdown_delay_unit.setToolTip(tr("shutdown_delay_hint"))
-
-        shutdown_row = QWidget()
-        shutdown_row_layout = QHBoxLayout(shutdown_row)
-        shutdown_row_layout.setContentsMargins(0, 0, 0, 0)
-        shutdown_row_layout.setSpacing(6)
-        shutdown_row_layout.addWidget(self.shutdown_cb)
-        shutdown_row_layout.addWidget(self.shutdown_delay)
-        shutdown_row_layout.addWidget(self.shutdown_delay_unit)
-        shutdown_row_layout.addStretch()
-
-        checkbox_shutdown_col.addWidget(shutdown_row, 0, Qt.AlignmentFlag.AlignLeft)
-
-        self.btn_settings = QPushButton(tr("settings"))
-        self.btn_settings.setFixedWidth(SIDE_BUTTON_WIDTH)
-        self.btn_settings.clicked.connect(self.open_settings)
-
-        settings_layout.addLayout(checkbox_shutdown_col, 1)
-        settings_layout.addWidget(self.btn_settings)
-        settings_layout.setAlignment(self.btn_settings, Qt.AlignmentFlag.AlignTop)
-
-        # ================= CHECKBOX PDF + BTN VERSION =================
-        version_row = QWidget()
-        version_layout = QHBoxLayout(version_row)
-        version_layout.setContentsMargins(0, 0, 0, 0)
-        version_layout.setSpacing(6)
-
-        checkbox_pdf_col = QVBoxLayout()
-        checkbox_pdf_col.setContentsMargins(0, 0, 0, 0)
-        checkbox_pdf_col.setSpacing(6)
-
-        # Engine-visible option, so it lives in config.json rather than QSettings.
-        self.pdf_cb = make_checkbox(tr("convert_to_pdf"))
-        self.pdf_cb.setChecked(bool(CONFIG.get("convert_to_pdf", False)))
-        self.pdf_cb.toggled.connect(self.on_convert_to_pdf_toggled)
-
-        checkbox_pdf_col.addWidget(self.pdf_cb, 0, Qt.AlignmentFlag.AlignLeft)
-
-        self.btn_version = QPushButton(tr("version"))
-        self.btn_version.setFixedWidth(SIDE_BUTTON_WIDTH)
-
-        version_layout.addLayout(checkbox_pdf_col, 1)
-        version_layout.addWidget(self.btn_version)
-        version_layout.setAlignment(self.btn_version, Qt.AlignmentFlag.AlignTop)
-
-        # ================= CHECKBOX ADD QUEUE + BTN ABOUT =================
-        about_row = QWidget()
-        about_layout = QHBoxLayout(about_row)
-        about_layout.setContentsMargins(0, 0, 0, 0)
-        about_layout.setSpacing(6)
-
-        checkbox_add_queue_col = QVBoxLayout()
-        checkbox_add_queue_col.setContentsMargins(0, 0, 0, 0)
-        checkbox_add_queue_col.setSpacing(6)
-
-        self.auto_queue_cb = make_checkbox(tr("auto_queue"))
-        auto_queue_saved = self.settings.value("auto_queue", False, type=bool)
-        self.auto_queue_cb.setChecked(auto_queue_saved)
-        self.auto_queue_cb.toggled.connect(self.on_auto_queue_toggled)
-
-        checkbox_add_queue_col.addWidget(self.auto_queue_cb, 0, Qt.AlignmentFlag.AlignLeft)
-
-        # The About button sits on this row, at the far right of the checkboxes.
-        self.btn_about = QPushButton(tr("about"))
-        self.btn_about.setFixedWidth(SIDE_BUTTON_WIDTH)
-
-        about_layout.addLayout(checkbox_add_queue_col, 1)
-        about_layout.addWidget(self.btn_about)
-        about_layout.setAlignment(self.btn_about, Qt.AlignmentFlag.AlignTop)
-
-        # ================= PATH AREA =================
+        # ================= PATH ROW =================
         path_area = QWidget()
         path_layout = QHBoxLayout(path_area)
-
-        self.btn_folder = QPushButton(tr("folder"))
-        self.btn_folder.setFixedWidth(SIDE_BUTTON_WIDTH)
-
         path_layout.setContentsMargins(0, 0, 0, 0)
         path_layout.setSpacing(6)
 
@@ -286,105 +115,94 @@ class LeftPanel(QWidget):
         # The path is always editable; each change (pick folder / typing) is saved
         self.path_input.editingFinished.connect(self._save_path)
 
+        self.btn_folder = QPushButton(tr("folder"))
+        self.btn_folder.setFixedWidth(SIDE_BUTTON_WIDTH)
+
         path_layout.addWidget(self.path_input, 1)
         path_layout.addWidget(self.btn_folder)
 
-        # ================= TREE =================
-        self.tree = QTreeWidget()
-        self.tree.setObjectName("detail_tree")
-        self.tree.setStyleSheet(TREE_STYLE)
-
-        self.tree.setHeaderLabels(["Chapter", "Time"])
-        self.tree.setHeaderHidden(True)
-        self.tree.header().setStretchLastSection(False)
-        self.tree.header().setSectionResizeMode(
-            0,
-            QHeaderView.ResizeMode.Stretch,
-        )
-        self.tree.header().setSectionResizeMode(
-            1,
-            QHeaderView.ResizeMode.ResizeToContents,
-        )
+        source_layout.addWidget(path_area)
 
         # ================= ADD QUEUE BUTTON =================
         self.btn_add = QPushButton(tr("add_queue"))
+        self.btn_add.setObjectName("add_queue")
         self.btn_add.setDisabled(True)
+        source_layout.addWidget(self.btn_add, 1)
 
-        # ================= HEADER PANEL =================
-        self.chapter_header = QWidget()
+        # ================= OPTIONS (checkboxes) =================
+        options_group = QGroupBox(tr("options"))
+        options_layout = QVBoxLayout(options_group)
+        options_layout.setContentsMargins(6, 6, 6, 6)
+        options_layout.setSpacing(6)
 
-        header_main = QVBoxLayout(self.chapter_header)
-        header_main.setContentsMargins(4, 4, 4, 4)
-        header_main.setSpacing(4)
+        self.auto_queue_cb = make_checkbox(tr("auto_queue"))
+        self.auto_queue_cb.setChecked(
+            self.settings.value("auto_queue", False, type=bool)
+        )
+        self.auto_queue_cb.toggled.connect(self.on_auto_queue_toggled)
+        options_layout.addWidget(self.auto_queue_cb, 0, Qt.AlignmentFlag.AlignLeft)
 
-        # ===== LOADING ROW =====
-        loading_layout = QHBoxLayout()
+        # Output format: exposed as a checkbox here and as the preview's
+        # combobox; both write the same config key (`convert_to_pdf`).
+        self.pdf_cb = make_checkbox(tr("convert_to_pdf"))
+        self.pdf_cb.setChecked(bool(CONFIG.get("convert_to_pdf", False)))
+        self.pdf_cb.toggled.connect(self.on_convert_to_pdf_toggled)
+        options_layout.addWidget(self.pdf_cb, 0, Qt.AlignmentFlag.AlignLeft)
 
-        self.loading = QLabel()
-        self.loading.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        shutdown_row = QWidget()
+        shutdown_layout = QHBoxLayout(shutdown_row)
+        shutdown_layout.setContentsMargins(0, 0, 0, 0)
+        shutdown_layout.setSpacing(6)
 
-        self.movie = QMovie(str(get_resource_path("assets/spinners/loading.gif")))
-        self.movie.setScaledSize(QSize(48, 48))
+        self.shutdown_cb = make_checkbox(tr("shutdown_after_done"))
+        self.shutdown_cb.setChecked(
+            self.settings.value("shutdown_after_done", False, type=bool)
+        )
+        self.shutdown_cb.toggled.connect(self.on_shutdown_toggled)
 
-        self.loading.setMovie(self.movie)
+        # Text box next to the checkbox: countdown (seconds) before shutdown.
+        saved_delay = self.settings.value("shutdown_delay", 60, type=int)
+        self.shutdown_delay = QLineEdit()
+        self.shutdown_delay.setValidator(QIntValidator(1, 3600, self))
+        self.shutdown_delay.setText(str(saved_delay if isinstance(saved_delay, int) else 60))
+        self.shutdown_delay.setFixedSize(38, 22)
+        self.shutdown_delay.setObjectName("shutdown_delay")
+        self.shutdown_delay.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.shutdown_delay.setToolTip(tr("shutdown_delay_hint"))
+        self.shutdown_delay.editingFinished.connect(self._save_shutdown_delay)
+        self.shutdown_delay.setEnabled(self.shutdown_cb.isChecked())
 
-        loading_layout.addStretch()
-        loading_layout.addWidget(self.loading)
-        loading_layout.addStretch()
+        self.shutdown_delay_unit = QLabel(tr("shutdown_seconds"))
+        self.shutdown_delay_unit.setToolTip(tr("shutdown_delay_hint"))
 
-        # ===== INFO ROW =====
-        info_layout = QHBoxLayout()
+        shutdown_layout.addWidget(self.shutdown_cb)
+        shutdown_layout.addWidget(self.shutdown_delay)
+        shutdown_layout.addWidget(self.shutdown_delay_unit)
+        shutdown_layout.addStretch()
+        options_layout.addWidget(shutdown_row, 0)
 
-        # THUMB
-        self.manga_thumb = QLabel()
-        self.manga_thumb.setFixedSize(150, 200)
-        self.manga_thumb.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        # ================= PREVIEW (cover/title/format/chapters) =================
+        preview_group = QGroupBox(tr("preview"))
+        preview_layout = QVBoxLayout(preview_group)
+        preview_layout.setContentsMargins(6, 6, 6, 6)
+        preview_layout.setSpacing(6)
+        
+        self.preview = PreviewChapter()
+        preview_layout.addWidget(self.preview, 1)
 
-        # TITLE
-        self.manga_title = QLabel("")
-        self.manga_title.setStyleSheet(MANGA_TITLE_STYLE)
-        self.manga_title.setWordWrap(True)
-        self.manga_title.setMaximumHeight(200)
-
-        info_layout.addWidget(self.manga_thumb)
-        info_layout.addWidget(self.manga_title)
-        info_layout.addStretch()
-
-        header_main.addLayout(loading_layout)
-        header_main.addLayout(info_layout)
-
-        # ================= DETAIL CHAPTER PANEL =================
-        self.detail_chapter = QWidget()
-        self.detail_chapter.setObjectName("detail_chapter")
-        self.detail_chapter.setStyleSheet(CHAPTER_PANEL_STYLE)
-
-        detail_layout = QVBoxLayout(self.detail_chapter)
-        detail_layout.addWidget(self.chapter_header, 0)
-        detail_layout.addWidget(self.tree, 1)
-
-        # ================= ASSEMBLE LEFT PANEL =================
-        # The Mode row replaces the old top spacer; minor vertical margins keep
-        # the Mode label flush at the top, aligned with the Queue label row.
-        layout.addWidget(self.mode_area, 0)
-        layout.addWidget(self.input_stack, 0)
-        layout.addWidget(path_area, 0)
-        layout.addWidget(settings_row, 0)
-        layout.addWidget(version_row, 0)
-        layout.addWidget(about_row, 0)
-
-        # Add Queue spans the whole left panel (About moved up to the checkboxes).
-        layout.addWidget(self.btn_add, 0)
-
-        layout.addWidget(self.detail_chapter, 1)
+        layout.addWidget(source_group, 0)
+        layout.addWidget(options_group, 0)
+        layout.addWidget(preview_group, 0)
 
         # events that only affect this panel's own widgets
         self.btn_folder.clicked.connect(self.pick_folder)
-        self.btn_pick_file.clicked.connect(self.pick_file)
-        self.btn_about.clicked.connect(self.open_about)
-        self.btn_version.clicked.connect(self.open_version)
         self.url_input.textChanged.connect(lambda _=None: self._update_add_button())
-        self.file_input.textChanged.connect(lambda _=None: self._update_add_button())
-        self._on_mode_changed(self.rb_manual.isChecked())
+        # pdf_cb (persisted) drives the preview's format combobox; changing the
+        # combobox writes the setting back, so the two stay in sync.
+        self.preview.format_combo.currentIndexChanged.connect(self._on_format_changed)
+        self.preview.set_output_format(
+            PDF_FORMAT if self.pdf_cb.isChecked() else IMAGE_FORMAT
+        )
 
     # =========================
     # SAVE THE SELECTED PATH (for the next run)
@@ -425,10 +243,24 @@ class LeftPanel(QWidget):
             return 60
 
     # =========================
-    # checkbox "Convert to PDF"
+    # OUTPUT FORMAT (checkbox <-> preview combobox, one config key)
     # =========================
     def on_convert_to_pdf_toggled(self, checked):
         """Persist to config.json — the engine reads it to build the PDFs."""
+        self._set_convert_to_pdf(checked)
+        self.preview.format_combo.blockSignals(True)
+        self.preview.set_output_format(PDF_FORMAT if checked else IMAGE_FORMAT)
+        self.preview.format_combo.blockSignals(False)
+
+    def _on_format_changed(self):
+        want_pdf = self.preview.output_format() == PDF_FORMAT
+        if want_pdf != self.pdf_cb.isChecked():
+            self.pdf_cb.blockSignals(True)
+            self.pdf_cb.setChecked(want_pdf)
+            self.pdf_cb.blockSignals(False)
+        self._set_convert_to_pdf(want_pdf)
+
+    def _set_convert_to_pdf(self, checked: bool):
         new_config = dict(CONFIG)
         new_config["convert_to_pdf"] = checked
         if save_config(new_config):
@@ -441,59 +273,30 @@ class LeftPanel(QWidget):
     # UPDATE TEXT WHEN THE LANGUAGE CHANGES
     # =========================
     def retranslate(self):
-        self.file_input.setPlaceholderText(tr("file_placeholder"))
-        self.btn_pick_file.setText(tr("file_pick"))
         self.url_input.setPlaceholderText(tr("url_placeholder"))
         self.path_input.setPlaceholderText(tr("path_placeholder"))
         self.btn_paste.setText(tr("paste"))
         self.btn_folder.setText(tr("folder"))
-        self.btn_settings.setText(tr("settings"))
         self.btn_add.setText(tr("add_queue"))
-        self.btn_about.setText(tr("about"))
-        self.btn_version.setText(tr("version"))
         self.auto_queue_cb.setText(tr("auto_queue"))
         self.pdf_cb.setText(tr("convert_to_pdf"))
         self.shutdown_cb.setText(tr("shutdown_after_done"))
         self.shutdown_delay.setToolTip(tr("shutdown_delay_hint"))
         self.shutdown_delay_unit.setText(tr("shutdown_seconds"))
         self.shutdown_delay_unit.setToolTip(tr("shutdown_delay_hint"))
-        if hasattr(self, "rb_manual"):
-            self.rb_manual.setText(tr("mode_manual"))
-            self.rb_auto.setText(tr("mode_auto"))
-        if hasattr(self, "engine_combo"):
-            self.engine_label.setText(tr("engine"))
-            self.engine_combo.setItemText(0, tr("engine_auto"))
-            self.engine_combo.setItemText(1, tr("engine_native"))
-            self.engine_combo.setItemText(2, tr("engine_gallerydl"))
+        self.preview.retranslate()
 
     # =========================
-    # ENGINE SELECTION
-    # =========================
-    def engine_choice(self):
-        """The selected engine: None ("Auto"), "native" or "gallerydl".
-
-        None means "let core.engines.selector decide" (config default +
-        per-domain overrides + fallback).
-        """
-        return self.engine_combo.currentData()
-
-    # =========================
-    # SETTINGS MODAL (read/write config.json)
+    # SETTINGS / ABOUT / VERSION MODALS (opened from the menu bar)
     # =========================
     def open_settings(self):
         dialog = _ConfigDialog(self)
         dialog.exec()
 
-    # =========================
-    # ABOUT MODAL
-    # =========================
     def open_about(self):
         dialog = _AboutDialog(self)
         dialog.exec()
 
-    # =========================
-    # VERSION / UPDATE MODAL
-    # =========================
     def open_version(self):
         from gui.dialogs.version_dialog import VersionDialog
 
@@ -511,107 +314,27 @@ class LeftPanel(QWidget):
             self.path_input.setText(folder)
             self._save_path()
 
-        # =========================
-    # FILE PICKER (add jobs from file)
-    # =========================
-    def _pick_file_for_event(self, event):
-        self.pick_file()
-
-    def pick_file(self):
-        """Open a file dialog and validate the chosen file as a link list.
-
-        Any file type can be picked ("All files"). The content is then
-        validated via core.utils.parse_link_file: it must be readable as
-        text and every non-empty, non-comment line must look like a valid
-        http(s) URL. On failure, an error modal is shown and the file is
-        not imported.
-        """
-        from PyQt6.QtWidgets import QFileDialog, QMessageBox
-        from core.utils import parse_link_file
-
-        path, _ = QFileDialog.getOpenFileName(
-            self,
-            tr("file_pick_title"),
-            "",
-            f"{tr('all_files')} (*)",
-        )
-        if not path:
-            return
-
-        _urls, error_code, error_detail = parse_link_file(path)
-
-        if error_code is not None:
-            message = tr(f"import_error_{error_code}")
-            if error_detail:
-                message = f"{message}\n\n{error_detail}"
-
-            QMessageBox.critical(self, tr("import_error_title"), message)
-            return
-
-        self.file_input.setText(path)
-        self._save_file_path()
-        self._update_add_button()
-
-    def _save_file_path(self):
-        self.settings.setValue("import_file", self.file_input.text().strip())
-
-    # =========================
-    # MODE CHANGE (manual / auto)
-    # =========================
-    def _on_mode_changed(self, checked):
-        """Switch between manual (paste URL) and auto (add jobs from a file).
-
-        Uses a QStackedWidget, so only one input row is ever visible:
-        - manual: URL text box + paste button
-        - auto:   file text box + choose-file button
-        """
-        manual = self.rb_manual.isChecked()
-
-        # Show the matching page of the input stack.
-        self.input_stack.setCurrentIndex(0 if manual else 1)
-
-        # add_queue is only enabled once a valid input is present:
-        # manual -> a URL has been loaded; auto -> a file has been chosen.
-        self._update_add_button()
-
     # =========================
     # UPDATE ADD-QUEUE BUTTON STATE
     # =========================
     def _update_add_button(self):
-        """Enable the Add Queue button when a valid input is present:
-        - manual mode: a URL has been loaded (title available)
-        - auto mode:   a file has been chosen
-        """
-        if self.rb_auto.isChecked():
-            self.btn_add.setEnabled(bool(self.file_input.text().strip()))
-            return
-
-        # manual mode: URL field may be populated; title is filled by on_load_chapters.
+        """Enable Add Queue once a URL is loaded and its title is known."""
         self.btn_add.setEnabled(
             bool(self.url_input.text().strip())
-            and bool(self.manga_title.text().strip())
+            and bool(self.preview.title_text().strip())
         )
 
     # =========================
     # SHOW / HIDE LOADING
     # =========================
     def on_loading(self, show: bool):
-        if show:
-            self.reset_view()
-            self.loading.show()
-            self.movie.start()
-        else:
-            self.movie.stop()
-            self.loading.hide()
+        self.preview.set_loading(show)
 
     # =========================
     # RESET VIEW
     # =========================
     def reset_view(self):
-        self.manga_title.clear()
-        self.manga_thumb.clear()
-        self.tree.setHeaderHidden(True)
-        self.tree.clear()
+        self.preview.reset()
 
 
 class _ConfigDialog(QDialog):
@@ -634,7 +357,6 @@ class _ConfigDialog(QDialog):
         btn.setText("?")
         btn.setFixedSize(24, 24)
         btn.setAutoRaise(True)
-        btn.setStyleSheet(HELP_BUTTON_STYLE)
         btn.clicked.connect(callback)
         return btn
 
@@ -643,32 +365,11 @@ class _ConfigDialog(QDialog):
         self.setWindowTitle(tr("settings_title"))
         self.setModal(True)
         self.setMinimumWidth(480)
-        self.setStyleSheet(CONFIG_DIALOG_STYLE)
 
         self._inputs = {}
 
         layout = QVBoxLayout(self)
         form = QFormLayout()
-
-        # ===== LANGUAGE COMBOBOX =====
-        self.cb_lang = QComboBox()
-        self.cb_lang.addItem(tr("lang_vi"), "vi")
-        self.cb_lang.addItem(tr("lang_en"), "en")
-        idx = self.cb_lang.findData(get_lang())
-        self.cb_lang.setCurrentIndex(idx if idx >= 0 else 0)
-
-        # Wrap in a stretching row so the width matches the text boxes below
-        # (the other rows have a "?" button 24px at the end -> leave exactly 24px)
-        lang_row = QWidget()
-        lang_layout = QHBoxLayout(lang_row)
-        lang_layout.setContentsMargins(0, 0, 0, 0)
-        lang_layout.setSpacing(4)
-        lang_layout.addWidget(self.cb_lang, 1)
-        lang_spacer = QWidget()
-        lang_spacer.setFixedWidth(24)
-        lang_layout.addWidget(lang_spacer)
-
-        form.addRow(tr("language_label"), lang_row)
 
         for label_key, key, cast, desc_key in self.FIELDS:
             label = tr(label_key)
@@ -698,7 +399,7 @@ class _ConfigDialog(QDialog):
             row_layout = QHBoxLayout(row)
             row_layout.setContentsMargins(0, 0, 0, 0)
             row_layout.setSpacing(4)
-            
+
             row_layout.addWidget(widget, 1)
             row_layout.addWidget(btn_help)
 
@@ -781,7 +482,7 @@ class _ConfigDialog(QDialog):
 
         apply_pointer_cursors(self)
 
-        # Don't auto-focus cb_lang (the first widget) when the dialog opens.
+        # Don't auto-focus the first widget when the dialog opens.
         self.setFocus()
 
     def _on_apply(self):
@@ -797,13 +498,11 @@ class _ConfigDialog(QDialog):
 
         new_config["download_thumb"] = self.rb_thumb_yes.isChecked()
         new_config["download_genres"] = self.rb_genres_yes.isChecked()
-        new_config["language"] = self.cb_lang.currentData()
 
         if save_config(new_config):
-            # Update the in-memory CONFIG + language so the change applies immediately
+            # Update the in-memory CONFIG so the change applies immediately
             CONFIG.clear()
             CONFIG.update(new_config)
-            set_lang(new_config["language"])
             self.accept()
         else:
             from PyQt6.QtWidgets import QMessageBox
@@ -827,7 +526,7 @@ class _HelpDialog(QDialog):
         layout = QVBoxLayout(self)
 
         title_label = QLabel(title)
-        title_label.setStyleSheet(HELP_TITLE_STYLE)
+        title_label.setObjectName("dialog_title")
         title_label.setWordWrap(True)
 
         desc_label = QLabel(description)
@@ -859,7 +558,7 @@ class _AboutDialog(QDialog):
         layout = QVBoxLayout(self)
 
         title_label = QLabel(tr("app_title"))
-        title_label.setStyleSheet(HELP_TITLE_STYLE)
+        title_label.setObjectName("dialog_title")
         title_label.setWordWrap(True)
 
         desc_label = QLabel(tr("about_desc"))

@@ -64,6 +64,7 @@ Settings are stored in `data/config.json`, created automatically next to the app
 | `download_thumb` | Save thumbnail when downloading |
 | `download_genres` | Save genres to a `genres.txt` file when downloading |
 | `language` | UI language (`vi` or `en`) |
+| `theme` | UI theme: `system` (follow the OS), `light` or `dark` |
 | `user_agent` | Custom HTTP User-Agent |
 | `engine_default` | Download engine: `native` (default) or `gallerydl` |
 | `engine_fallback` | Retry a job once on the other engine when one fails |
@@ -72,7 +73,7 @@ Settings are stored in `data/config.json`, created automatically next to the app
 
 ## Download engines
 
-Two engines can fetch a story. Pick one with the **Engine** dropdown (Auto / Native / gallery-dl); Auto follows `engine_default` and falls back to the other engine when a site is not supported.
+Two engines can fetch a story. The app chooses automatically (`engine_default`, plus per-domain `engine_overrides`) and falls back to the other engine when a site is not supported — there is no engine control in the UI.
 
 | Engine | How it works | Sites |
 | :--- | :--- | :--- |

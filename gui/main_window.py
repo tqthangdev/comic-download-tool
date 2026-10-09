@@ -9,18 +9,30 @@ import time
 import requests
 from qasync import asyncSlot
 
-from PyQt6.QtGui import QPixmap, QCursor, QIcon
-from PyQt6.QtWidgets import QApplication, QDialog, QWidget, QHBoxLayout, QMessageBox, QPushButton
+from PyQt6.QtGui import QPixmap, QCursor, QIcon, QAction, QActionGroup
+from PyQt6.QtWidgets import (
+    QApplication,
+    QDialog,
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QMenuBar,
+    QMenu,
+    QMessageBox,
+    QPushButton,
+)
 from PyQt6.QtCore import QSettings, QTimer, Qt, QEvent
 
 from gui.panels.ui_left import LeftPanel
 from gui.panels.ui_right import RightPanel
+from gui.panels.preview_chapter import THUMBNAIL_SIZE
 from gui.dialogs.restore_dialog import RestoreDialog
 from gui.dialogs.login_dialog import prompt_login
 from gui.cursor_utils import apply_pointer_cursors
-from gui.theme import MAIN_WINDOW_STYLE
+from gui import theme
 from core.logger import logger
-from core.i18n import tr, add_listener
+from core.i18n import tr, add_listener, set_lang, get_lang
+from core.utils import CONFIG, save_config
 from core.auth import auth_manager
 from core.scraping.scraper import BotProtectionError
 
@@ -69,7 +81,6 @@ class MainWindow(QWidget):
         window = self.frameGeometry()
         window.moveCenter(screen.center())
         self.move(window.topLeft())
-        self.setStyleSheet(MAIN_WINDOW_STYLE)
 
         self.init_ui()
         self._closing = False
@@ -84,15 +95,26 @@ class MainWindow(QWidget):
     # UI KEEPS 2 COLUMNS
     # =========================
     def init_ui(self):
-        layout = QHBoxLayout()
+        root = QVBoxLayout()
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
 
+        # The window is a plain QWidget, so the menu bar is a widget at the top
+        # (keeping it in-window on macOS too).
+        self.menu_bar = QMenuBar(self)
+        self.menu_bar.setNativeMenuBar(False)
+        root.addWidget(self.menu_bar)
+
+        columns = QHBoxLayout()
         self.left = LeftPanel(self.settings)
         self.right = RightPanel()
+        columns.addWidget(self.left, 3)
+        columns.addWidget(self.right, 3)
+        root.addLayout(columns, 1)
 
-        layout.addWidget(self.left, 3)
-        layout.addWidget(self.right, 3)
+        self.setLayout(root)
 
-        self.setLayout(layout)
+        self._build_menu()
 
         # ================= EVENTS =================
         self.left.btn_paste.clicked.connect(self.on_paste_url)
@@ -110,8 +132,100 @@ class MainWindow(QWidget):
         self._apply_cursors()
         add_listener(self._retranslate)
 
+        # Apply the saved theme app-wide; rebuild the menu when it (or the OS
+        # colour scheme) changes, so the Theme check marks stay correct.
+        theme.apply()
+        theme.add_listener(self._build_menu)
+
         # Wait for the window to finish rendering
         QTimer.singleShot(100, self._start_restore)
+
+    # =========================
+    # MENU BAR
+    # =========================
+    def _build_menu(self):
+        """Menu bar holding the secondary actions that used to be buttons."""
+        self.menu_bar.clear()
+        menu = self.menu_bar.addMenu(tr("menu"))
+
+        def add(key, slot, shortcut=None):
+            act = QAction(tr(key), self)
+            if shortcut:
+                act.setShortcut(shortcut)
+            act.triggered.connect(slot)
+            menu.addAction(act)
+            return act
+
+        add("menu_select_files", self.select_files, "Ctrl+O")
+        menu.addSeparator()
+        add("menu_settings", self.left.open_settings, "Ctrl+I")
+        menu.addSeparator()
+
+        # Language submenu
+        language_menu = menu.addMenu(tr("menu_language"))
+        group = QActionGroup(self)
+        group.setExclusive(True)
+        for code, key in (("vi", "lang_vi"), ("en", "lang_en")):
+            act = QAction(tr(key), self)
+            act.setCheckable(True)
+            act.setChecked(get_lang() == code)
+            act.triggered.connect(
+                lambda _checked=False, c=code: self.set_language(c)
+            )
+            group.addAction(act)
+            language_menu.addAction(act)
+
+        # Theme submenu: Follow system / Light / Dark
+        theme_menu = menu.addMenu(tr("menu_theme"))
+        theme_group = QActionGroup(self)
+        theme_group.setExclusive(True)
+        for name, key in (
+            (theme.THEME_SYSTEM, "theme_system"),
+            (theme.THEME_LIGHT, "theme_light"),
+            (theme.THEME_DARK, "theme_dark"),
+        ):
+            act = QAction(tr(key), self)
+            act.setCheckable(True)
+            act.setChecked(theme.current_name() == name)
+            act.triggered.connect(lambda _checked=False, n=name: theme.apply(n))
+            theme_group.addAction(act)
+            theme_menu.addAction(act)
+
+        menu.addSeparator()
+        add("menu_check_version", self.left.open_version, "Ctrl+U")
+        add("menu_about", self.left.open_about)
+        menu.addSeparator()
+        add("menu_quit", self.close, "Ctrl+Q")
+
+    def set_language(self, code: str):
+        """Menu action: switch the UI language and persist it to config.json."""
+        new_config = dict(CONFIG)
+        new_config["language"] = code
+        if save_config(new_config):
+            CONFIG.clear()
+            CONFIG.update(new_config)
+        set_lang(code)
+
+    def select_files(self):
+        """Menu action: pick a link file and add every URL in it to the queue."""
+        from PyQt6.QtWidgets import QFileDialog
+        from core.utils import parse_link_file
+
+        path, _ = QFileDialog.getOpenFileName(
+            self, tr("file_pick_title"), "", f"{tr('all_files')} (*)"
+        )
+        if not path:
+            return
+
+        _urls, error_code, error_detail = parse_link_file(path)
+        if error_code is not None:
+            message = tr(f"import_error_{error_code}")
+            if error_detail:
+                message = f"{message}\n\n{error_detail}"
+            QMessageBox.critical(self, tr("import_error_title"), message)
+            return
+
+        asyncio.ensure_future(self.add_jobs_from_file(path))
 
     def _start_restore(self):
         self.restore_modal = RestoreDialog(self)
@@ -154,6 +268,7 @@ class MainWindow(QWidget):
 
     def _retranslate(self):
         self.setWindowTitle(tr("app_title"))
+        self._build_menu()
         self.left.retranslate()
         self.right.retranslate()
         self._update_pause_button()
@@ -199,7 +314,7 @@ class MainWindow(QWidget):
             return
 
         old_url = self.left.url_input.text().strip()
-        old_title = self.left.manga_title.text().strip()
+        old_title = self.left.preview.title_text().strip()
 
         # If "Automatically add to queue" is on and there is a story (A) already
         # loaded (has a title) different from the new url (B), auto-add A first
@@ -243,15 +358,11 @@ class MainWindow(QWidget):
         self.left.on_loading(True)
 
         try:
-            override = self.left.engine_choice()
-            meta, engine_name = await self.engine.probe(
-                url, site_id=site_id, engine=override
-            )
+            meta, engine_name = await self.engine.probe(url, site_id=site_id)
             data = meta.as_dict()
             self._loaded_data = data
-            # Record the engine that ACTUALLY produced the preview. When the
-            # user pins one that cannot handle the URL, probe() falls back to the
-            # other one, and that is what the job must remember.
+            # The engine is always "Auto": the selector picks the backend (and
+            # falls back to the other one when needed).
             self._loaded_engine = engine_name
 
             title = data.get("title", "")
@@ -261,10 +372,10 @@ class MainWindow(QWidget):
             # =========================
             # SET TITLE
             # =========================
-            self.left.manga_title.setText(title)
+            self.left.preview.set_title(title)
 
             # =========================
-            # SET THUMB (150x200)
+            # SET THUMB
             # =========================
             try:
                 # Run in a thread so the loading gif keeps spinning (does not block the event loop)
@@ -291,25 +402,26 @@ class MainWindow(QWidget):
 
                 pixmap = QPixmap()
                 pixmap.loadFromData(img)
-                pixmap = pixmap.scaled(150, 200)
+                pixmap = pixmap.scaled(THUMBNAIL_SIZE)
 
-                self.left.manga_thumb.setPixmap(pixmap)
+                self.left.preview.set_thumb(pixmap)
 
             except Exception as e:
                 logger.error(f"Thumbnail preview load error: {e}")
-                self.left.manga_thumb.clear()
+                self.left.preview.set_thumb(None)
 
             # =========================
             # TREE CHAPTER
             # =========================
-            self.left.tree.clear()
-            self.left.tree.setHeaderHidden(False)
+            self.left.preview.tree.clear()
+            self.left.preview.tree.setHeaderHidden(False)
+            self.left.preview.format_area.show()
 
             from PyQt6.QtWidgets import QTreeWidgetItem
 
             for chap in chapters:
                 QTreeWidgetItem(
-                    self.left.tree,
+                    self.left.preview.tree,
                     [chap["title"], chap["update_time"]]
                 )
 
@@ -355,16 +467,8 @@ class MainWindow(QWidget):
     @asyncSlot()
     async def add_queue(self):
 
-        # Branch on the selected mode:
-        #   auto -> import all links from the chosen file
-        #   manual -> add the single URL currently pasted in the input box
-        if self.left.rb_auto.isChecked():
-            import_file = self.left.file_input.text().strip()
-            await self.add_jobs_from_file(import_file)
-            return
-
         url = self.left.url_input.text().strip()
-        title = self.left.manga_title.text().strip()
+        title = self.left.preview.title_text().strip()
         base_path = self.left.path_input.text().strip()
 
         if not url or not title or not base_path:
@@ -540,10 +644,7 @@ class MainWindow(QWidget):
             engine_name = None
             try:
                 async with semaphore:
-                    override = self.left.engine_choice()
-                    meta, engine_name = await self.engine.probe(
-                        url, site_id=site_id, engine=override
-                    )
+                    meta, engine_name = await self.engine.probe(url, site_id=site_id)
                     data = meta.as_dict()
             except Exception as e:
                 logger.error(f"[add_from_file] Skipped {url}: {e}")

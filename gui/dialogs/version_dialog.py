@@ -27,7 +27,6 @@ from core.logger import logger
 from core.updater.checker import UpdateError, check_for_update
 from core.updater.installer import InstallError, prepare_update, spawn_updater
 from gui.cursor_utils import apply_pointer_cursors
-from gui.theme import CONFIG_DIALOG_STYLE
 
 
 class VersionDialog(QDialog):
@@ -53,7 +52,6 @@ class VersionDialog(QDialog):
         self.notes = QTextEdit()
         self.notes.setReadOnly(True)
         self.notes.setFixedHeight(150)
-        self.notes.setStyleSheet(CONFIG_DIALOG_STYLE)
 
         self.progress = QProgressBar()
         self.progress.setRange(0, 100)
