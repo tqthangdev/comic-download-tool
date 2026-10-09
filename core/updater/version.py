@@ -28,6 +28,12 @@ def read_current_version() -> str:
         return ""
 
 
+def display_version(version: str) -> str:
+    """Display form of a version: exactly one leading "v" (v1.0.2)."""
+    text = (version or "").strip()
+    return f"v{text.lstrip('vV')}" if text else "?"
+
+
 def parse_version(text: str) -> Tuple[int, ...]:
     """Turn "v1.0.2" / "1.0.2" into a comparable tuple (1, 0, 2).
 

@@ -67,7 +67,8 @@ def check_for_update() -> UpdateInfo:
         raise UpdateError(type(e).__name__) from e
 
     if resp.status_code == 404:
-        raise UpdateError("no release published")
+        # Also what a private repository returns without credentials.
+        raise UpdateError("release not found (private repo or no published release)")
     if resp.status_code != 200:
         raise UpdateError(f"GitHub API returned {resp.status_code}")
 

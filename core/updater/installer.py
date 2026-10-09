@@ -2,8 +2,8 @@
 core/updater/installer.py
 
 Prepares an update — download, verify, extract, validate — and then hands the
-actual replacement to the standalone updater process. The running app never
-overwrites itself.
+actual replacement to the standalone updater process (`apply.py`). The running
+app never overwrites itself.
 """
 
 from __future__ import annotations
@@ -18,17 +18,21 @@ from typing import Callable, Optional
 
 from core.logger import logger
 from core.utils import BASE_DIR
+from core.updater import UPDATE_DIR_NAME
 from core.updater.checker import UpdateInfo
-from core.updater.downloader import download_asset
+from core.updater.downloader import DownloadError, download_asset
 from core.updater.verifier import validate_package, verify_download
 
-# Staging area, inside the app folder as the spec describes. The updater moves
-# it out of the way before replacing the app.
-UPDATE_DIR_NAME = ".update"
+EXE_NAME = "ComicDownloadTool.exe" if os.name == "nt" else "ComicDownloadTool"
 
 
 class InstallError(Exception):
     """The update could not be prepared."""
+
+    def __init__(self, message: str, code: str = ""):
+        super().__init__(message)
+        # Stable code for messages the UI translates itself (see i18n).
+        self.code = code
 
 
 def staging_dir(version: str) -> Path:
@@ -39,9 +43,38 @@ def _cleanup(path: Path) -> None:
     shutil.rmtree(path, ignore_errors=True)
 
 
+def _restore_permissions(archive: zipfile.ZipFile, root: Path) -> None:
+    """Give extracted files back the Unix mode stored in the zip.
+
+    `ZipFile.extractall` does not restore the permission bits, so the packaged
+    executable came out as 0644 and could not be launched (PermissionError).
+    """
+    if os.name == "nt":
+        return
+    for info in archive.infolist():
+        mode = (info.external_attr >> 16) & 0o7777
+        if not mode:
+            continue
+        try:
+            os.chmod(root / info.filename, mode)
+        except OSError:
+            pass
+
+
+def cleanup_staging() -> None:
+    """Remove the staging area left by a finished update (best-effort).
+
+    A staged build can be locked on Windows while the updater process that
+    launched from it is still exiting, so a leftover folder is removed on the
+    following launch instead.
+    """
+    _cleanup(BASE_DIR / UPDATE_DIR_NAME)
+
+
 def prepare_update(
     info: UpdateInfo,
     progress: Optional[Callable[[int, int], None]] = None,
+    cancel: Optional[Callable[[], bool]] = None,
 ) -> Path:
     """Download, verify, extract and validate the release package.
 
@@ -51,13 +84,17 @@ def prepare_update(
     """
     asset = info.asset_for_platform()
     if asset is None:
-        raise InstallError("no package for this platform")
+        raise InstallError("no package for this platform", code="no_package")
 
     stage = staging_dir(info.latest)
     stage.mkdir(parents=True, exist_ok=True)
 
     zip_path = stage / asset.name
-    download_asset(asset.url, zip_path, progress=progress)
+    try:
+        download_asset(asset.url, zip_path, progress=progress, cancel=cancel)
+    except DownloadError:
+        _cleanup(stage)
+        raise
 
     if not verify_download(zip_path, asset):
         _cleanup(stage)
@@ -72,6 +109,7 @@ def prepare_update(
             if broken:
                 raise InstallError(f"corrupt archive ({broken})")
             archive.extractall(extracted)
+            _restore_permissions(archive, extracted)
     except zipfile.BadZipFile as e:
         _cleanup(stage)
         raise InstallError("invalid zip archive") from e
@@ -91,18 +129,34 @@ def prepare_update(
     return app_root
 
 
+def _updater_launcher(source: Path):
+    """Command that runs the updater code.
+
+    A packaged update carries its own executable: running *that* (from the
+    staging folder) leaves the installed executable unlocked, so it can be
+    replaced on Windows. A source checkout has no executable, so the current
+    interpreter runs the entry script instead.
+    """
+    packaged = source / EXE_NAME
+    if packaged.is_file():
+        # Older staging runs may have extracted it without the executable bit.
+        if os.name != "nt" and not os.access(packaged, os.X_OK):
+            try:
+                os.chmod(packaged, 0o755)
+            except OSError:
+                pass
+        return [str(packaged)]
+
+    return [sys.executable, str(Path(sys.argv[0]).resolve())]
+
+
 def spawn_updater(source: Path, version: str) -> None:
     """Start the updater process that replaces this installation.
 
     The app exits right after this; the updater waits for that, so the swap
     never happens while the old build is still running.
     """
-    launcher = [sys.executable]
-    if not getattr(sys, "frozen", False):
-        # Running from source: hand the entry script to the interpreter.
-        launcher.append(str(Path(sys.argv[0]).resolve()))
-
-    args = launcher + [
+    args = _updater_launcher(source) + [
         "--update",
         "--source", str(source),
         "--target", str(BASE_DIR),

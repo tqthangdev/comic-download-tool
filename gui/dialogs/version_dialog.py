@@ -14,6 +14,7 @@ import threading
 
 from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (
+    QApplication,
     QDialog,
     QDialogButtonBox,
     QLabel,
@@ -190,9 +191,8 @@ class VersionDialog(QDialog):
             self._busy = False
             return
 
-        # The updater waits for this process to exit before touching anything,
-        # so hand over to the normal shutdown path.
+        # The updater waits for this process to exit before touching anything.
+        # A QDialog is its own top-level window, so closing "the window" would
+        # only close the dialog — quit the application instead.
         self.accept()
-        window = self.window()
-        if window is not None:
-            window.close()
+        QApplication.instance().quit()

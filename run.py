@@ -45,6 +45,16 @@ def _setup_playwright_browsers_path():
     logger.info(f"[Playwright] Using portable build at: {portable_path}")
 
 
+# --- Updater mode ---
+# The app re-runs this same executable (or this script, from source) as a
+# separate process to replace the installation, so the swap never happens while
+# the old build is still running. Handled before any Playwright/GUI setup.
+if "--update" in sys.argv:
+    from core.updater.apply import run_from_cli
+
+    sys.exit(run_from_cli(sys.argv[1:]))
+
+
 # --- gallery-dl worker mode ---
 # The app re-runs this same executable as a child process to run the bundled
 # gallery-dl CLI (see core/engines/gallerydl.py). Keeping it out of process
@@ -59,15 +69,6 @@ if "--gallery-dl-worker" in sys.argv:
 
 
 _setup_playwright_browsers_path()
-
-# --- Updater mode ---
-# The app re-runs this same executable (or this script, from source) as a
-# separate process to replace the installation, so the swap never happens while
-# the old build is still running. Handled before the GUI imports on purpose.
-if "--update" in sys.argv:
-    from updater.update import main as _updater_main
-
-    sys.exit(_updater_main())
 
 # --- Normal app run mode ---
 import asyncio
@@ -84,6 +85,11 @@ from core.utils import CONFIG
 
 def main():
     from PyQt6.QtGui import QIcon
+
+    from core.updater.installer import cleanup_staging
+
+    # Remove whatever a finished update left behind (best-effort).
+    cleanup_staging()
 
     app = QApplication(sys.argv)
 

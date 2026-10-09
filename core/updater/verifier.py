@@ -17,6 +17,9 @@ from core.updater.checker import ReleaseAsset
 
 CHUNK_BYTES = 1024 * 1024
 
+# Bundled data folder of a PyInstaller onedir build.
+INTERNAL_DIR = "_internal"
+
 # What a valid package must contain, per platform.
 ENTRY_POINTS = ("ComicDownloadTool.exe", "ComicDownloadTool", "run.py")
 VERSION_FILE = "version.json"
@@ -51,9 +54,24 @@ def verify_download(path: Path, asset: ReleaseAsset) -> bool:
     return sha256_of(path) == want
 
 
+def version_file(root: Path) -> Optional[Path]:
+    """The package's version.json: next to the executable, or inside the bundle.
+
+    A PyInstaller onedir build keeps bundled data (including version.json) in
+    the `_internal` folder, while a source checkout has it at the top level.
+    """
+    for candidate in (root / VERSION_FILE, root / INTERNAL_DIR / VERSION_FILE):
+        if candidate.is_file():
+            return candidate
+    return None
+
+
 def _package_version(root: Path) -> str:
+    path = version_file(root)
+    if path is None:
+        return ""
     try:
-        data = json.loads((root / VERSION_FILE).read_text(encoding="utf-8"))
+        data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError, AttributeError):
         return ""
     return str(data.get("version") or "").strip().lstrip("vV")
@@ -94,7 +112,7 @@ def validate_package(extracted: Path, version: str) -> Optional[Path]:
     before anything is replaced.
     """
     root = find_app_root(extracted)
-    if root is None or not (root / VERSION_FILE).exists():
+    if root is None or version_file(root) is None:
         return None
 
     want = (version or "").strip().lstrip("vV")
@@ -102,3 +120,15 @@ def validate_package(extracted: Path, version: str) -> Optional[Path]:
         return None
 
     return root
+
+
+def verify_installation(root: Path, version: str = "") -> bool:
+    """Check an installed app after the swap: entry point + matching version.
+
+    Used by the updater, so a broken copy is detected before the old build is
+    discarded instead of leaving the user with a half-installed app.
+    """
+    if not has_entry_point(root):
+        return False
+    want = (version or "").strip().lstrip("vV")
+    return not want or _package_version(root) == want
