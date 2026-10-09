@@ -5,10 +5,10 @@ from typing import Optional
 import aiohttp
 
 from core.logger import logger
-from core.scraper import get_referer
+from core.scraping.scraper import get_referer
 from core.utils import CONFIG
 from core.auth import auth_manager
-from core import stealth
+from core.net import stealth
 
 CONTENT_TYPE_EXT = {
     "image/jpeg": ".jpg",

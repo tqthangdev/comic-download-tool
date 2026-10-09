@@ -60,10 +60,10 @@ _SPEC_EXCLUDES = (
 # must be present inside the bundle or the checkboxes/radio buttons would
 # silently render without their custom icons.
 _INDICATOR_ASSETS = (
-    "checkbox-checked.svg",
-    "checkbox-unchecked.svg",
-    "radio-checked.svg",
-    "radio-unchecked.svg",
+    "controls/checkbox-checked.svg",
+    "controls/checkbox-unchecked.svg",
+    "controls/radio-checked.svg",
+    "controls/radio-unchecked.svg",
 )
 
 _SPEC_TEMPLATE = """\
@@ -83,6 +83,17 @@ datas = [
     (str(BASE_DIR / "version.json"), "."),
     (str(PLAYWRIGHT_DRIVER_PATH), "playwright/driver"),
 ]
+
+# Optional second engine: gallery-dl (GPL-2.0). Collected only when it is
+# installed, so a native-only venv still builds. The app runs it out of process
+# via `--gallery-dl-worker` (see run.py); its extractors are imported lazily, so
+# they must be collected explicitly.
+try:
+    from PyInstaller.utils.hooks import collect_data_files, collect_submodules
+    GALLERYDL_HIDDEN = collect_submodules("gallery_dl")
+    datas += collect_data_files("gallery_dl")
+except Exception:
+    GALLERYDL_HIDDEN = []
 
 # ==========================================
 # PLAYWRIGHT CHROMIUM
@@ -121,7 +132,7 @@ a = Analysis(
         "aiohttp",
         "bs4",
         "lxml",
-    ],
+    ] + GALLERYDL_HIDDEN,
 
     hookspath=[],
     hooksconfig={},
@@ -240,9 +251,13 @@ def run(command: list[str]) -> int:
 
 
 def install_dependencies() -> None:
-    """Install runtime + build dependencies declared in pyproject.toml."""
+    """Install runtime + build dependencies declared in pyproject.toml.
+
+    `gallerydl` is included so the optional second engine is bundled. Remove it
+    from this list to produce a native-only build (and drop the GPL-2.0 code).
+    """
     print("\n=== Installing dependencies (pyproject.toml) ===")
-    code = run([sys.executable, "-m", "pip", "install", "-e", ".[build]"])
+    code = run([sys.executable, "-m", "pip", "install", "-e", ".[build,gallerydl]"])
     if code != 0:
         raise SystemExit("Dependency installation failed.")
 
@@ -264,7 +279,7 @@ def patch_nodriver() -> None:
     nodriver to locate it (that import is the failure), so resolve the venv's
     site-packages via sysconfig. Safe to run repeatedly.
     """
-    fix_script = ROOT / "lib" / "fix_nodriver.py"
+    fix_script = ROOT / "tools" / "fix_nodriver.py"
     if not fix_script.exists():
         print(f"\nWarning: {fix_script} not found, skipping nodriver patch.")
         return
@@ -286,7 +301,7 @@ def install_browsers() -> None:
 def verify_project() -> None:
     print("\n=== Verify project ===")
     required = [ROOT / "run.py", ROOT / "version.json"]
-    icon = ROOT / "assets" / ("icon.ico" if os.name == "nt" else "icon.png")
+    icon = ROOT / "assets" / "app" / ("icon.ico" if os.name == "nt" else "icon.png")
     required.append(icon)
     for path in required:
         if not path.exists():
@@ -312,7 +327,7 @@ def browser_cache_dir() -> Path:
 
 def write_spec(name: str) -> Path:
     print("\n=== Creating PyInstaller spec ===")
-    icon = ROOT / "assets" / "icon.ico"
+    icon = ROOT / "assets" / "app" / "icon.ico"
     spec = (
         _SPEC_TEMPLATE
         .replace("@BROWSERS_PATH@", repr(str(browser_cache_dir())))

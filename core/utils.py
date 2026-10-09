@@ -110,6 +110,20 @@ DEFAULT_CONFIG = {
     "download_thumb": True,
     "download_genres": True,
     "convert_to_pdf": False,
+    # Download engine. "native" = heuristic scraper + aiohttp downloader;
+    # "gallerydl" = the gallery-dl subprocess backend. engine_overrides maps a
+    # domain to the engine to use for it (e.g. {"example.com": "gallerydl"}).
+    "engine_default": "native",
+    "engine_fallback": True,
+    "engine_overrides": {},
+    "gallerydl": {
+        "enabled": True,
+        "executable": "",
+        "extra_args": [],
+        "sleep_request": 0.5,
+        "retries": 4,
+        "timeout": 30,
+    },
     "language": "en",
     "user_agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "

@@ -53,12 +53,12 @@ QScrollBar::add-line:vertical:hover, QScrollBar::sub-line:vertical:hover {
     background: #4a4a4a;
 }
 QScrollBar::up-arrow:vertical {
-    image: url("assets/spin-up.svg");
+    image: url("assets/spinners/spin-up.svg");
     width: 8px;
     height: 5px;
 }
 QScrollBar::down-arrow:vertical {
-    image: url("assets/spin-down.svg");
+    image: url("assets/spinners/spin-down.svg");
     width: 8px;
     height: 5px;
 }
@@ -145,10 +145,10 @@ QRadioButton::indicator {
     height: 14px;
 }
 QRadioButton::indicator:unchecked {
-    image: url("assets/radio-unchecked.svg");
+    image: url("assets/controls/radio-unchecked.svg");
 }
 QRadioButton::indicator:checked {
-    image: url("assets/radio-checked.svg");
+    image: url("assets/controls/radio-checked.svg");
 }
 """)
 
@@ -159,10 +159,10 @@ QCheckBox::indicator {
     height: 18px;
 }
 QCheckBox::indicator:unchecked {
-    image: url("assets/checkbox-unchecked.svg");
+    image: url("assets/controls/checkbox-unchecked.svg");
 }
 QCheckBox::indicator:checked {
-    image: url("assets/checkbox-checked.svg");
+    image: url("assets/controls/checkbox-checked.svg");
 }
 """)
 
@@ -268,20 +268,20 @@ QSpinBox::up-button:pressed, QSpinBox::down-button:pressed {
     background-color: #1e1e1e;
 }
 QSpinBox::up-arrow {
-    image: url("assets/spin-up.svg");
+    image: url("assets/spinners/spin-up.svg");
     width: 10px;
     height: 6px;
 }
 QSpinBox::up-arrow:pressed {
-    image: url("assets/spin-up-active.svg");
+    image: url("assets/spinners/spin-up-active.svg");
 }
 QSpinBox::down-arrow {
-    image: url("assets/spin-down.svg");
+    image: url("assets/spinners/spin-down.svg");
     width: 10px;
     height: 6px;
 }
 QSpinBox::down-arrow:pressed {
-    image: url("assets/spin-down-active.svg");
+    image: url("assets/spinners/spin-down-active.svg");
 }
 QComboBox::drop-down {
     subcontrol-origin: padding;
@@ -296,7 +296,7 @@ QComboBox::drop-down:hover {
     background-color: #1e1e1e;
 }
 QComboBox::down-arrow {
-    image: url("assets/spin-down.svg");
+    image: url("assets/spinners/spin-down.svg");
     width: 10px;
     height: 6px;
 }

@@ -3,7 +3,7 @@ from functools import partial
 from typing import List, Optional
 from urllib.parse import urlparse
 
-from core.scraper import (
+from core.scraping.scraper import (
     scrape,
     scrape_from_html,
     find_chapter_images,
@@ -12,7 +12,7 @@ from core.scraper import (
 from core.utils import resolve_ddg_proxy, CONFIG
 from core.logger import logger
 from core.auth import auth_manager
-from core import stealth
+from core.net import stealth
 
 # Placeholder URLs (unrendered / lazy images) — not real content
 PLACEHOLDER_PARTS = ("transparent", "placeholder", "loading", "spacer", "/assets/img/")
@@ -217,7 +217,7 @@ class Crawler:
         raise last_error
 
     async def extract_images(self, url: str, site_id: Optional[str] = None) -> List[str]:
-        from core import nhentai
+        from core.scraping.sites import nhentai
 
         # nhentai serves a gallery's pages from its JSON API, not from the
         # chapter HTML, so bypass the heuristics for its URLs.
@@ -288,6 +288,6 @@ class Crawler:
                 logger.error(f"[close] Failed to stop Playwright: {e}")
             self._pw = None
 
-        from core import cuutruyen
+        from core.scraping.sites import cuutruyen
 
         await cuutruyen.close_renderer()

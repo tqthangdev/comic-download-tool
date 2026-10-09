@@ -21,7 +21,7 @@ class QueueDelegate(QStyledItemDelegate):
     def __init__(self, parent=None):
         super().__init__(parent)
 
-        self.trash_pixmap = QPixmap(str(get_resource_path("assets/trash.svg")))
+        self.trash_pixmap = QPixmap(str(get_resource_path("assets/controls/trash.svg")))
 
         # `parent` must be the view (QListView/QListWidget/etc.) so we can
         # grab its viewport, enable mouse tracking, and install an event
@@ -124,11 +124,24 @@ class QueueDelegate(QStyledItemDelegate):
         )
 
         # elide the title if it is too long so it does not overflow the row
-        metrics = QFontMetrics(painter.font())
+        base_font = painter.font()
+        metrics = QFontMetrics(base_font)
+
+        # ================= ENGINE TAG (right end of the title line) =========
+        engine = data.get("engine")
+        tag = ""
+        tag_font = None
+        tag_width = 0
+        if engine:
+            tag = "gallery-dl" if engine == "gallerydl" else str(engine)
+            tag_font = base_font
+            tag_font.setPointSizeF(max(6.0, base_font.pointSizeF() - 1))
+            tag_width = QFontMetrics(tag_font).horizontalAdvance(tag) + 8
+
         elided_title = metrics.elidedText(
             title,
             Qt.TextElideMode.ElideRight,
-            title_rect.width()
+            max(0, title_rect.width() - tag_width)
         )
 
         painter.setPen(QColor("#e0e0e0"))
@@ -137,6 +150,16 @@ class QueueDelegate(QStyledItemDelegate):
             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
             elided_title
         )
+
+        if tag:
+            painter.setFont(tag_font)
+            painter.setPen(QColor("#90A4AE"))
+            painter.drawText(
+                title_rect,
+                Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+                tag
+            )
+            painter.setFont(base_font)
 
         # ================= STATUS =================
         match status:

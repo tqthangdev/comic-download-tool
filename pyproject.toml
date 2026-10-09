@@ -37,6 +37,12 @@ dev = [
 build = [
     "pyinstaller>=6.0",
 ]
+# Optional second download engine. Not imported in-process — it is only ever
+# run as a subprocess (see core/engines/gallerydl.py), which keeps this
+# GPL-2.0 tool at arm's length from the rest of the app.
+gallerydl = [
+    "gallery-dl>=1.32,<2",
+]
 
 [project.gui-scripts]
 comic-download-tool = "run:main"

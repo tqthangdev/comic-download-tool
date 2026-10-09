@@ -9,7 +9,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import QSize, Qt, pyqtSignal
 
-from gui.queue_delegate import QueueDelegate
+from gui.panels.queue_delegate import QueueDelegate
 from gui.theme import QUEUE_LIST_STYLE
 from core.i18n import tr
 
@@ -116,22 +116,47 @@ class RightPanel(QWidget):
                 "path": str(job.save_path),
                 "chapters": job.chapters,
                 "referer": job.referer,
+                "engine": getattr(job, "engine", None),
             }
         )
+        self._apply_engine_tooltip(item, job)
 
         self.queue_list.addItem(item)
         self._update_queue_label()
+
+    @staticmethod
+    def _apply_engine_tooltip(item, job):
+        """Tooltip showing which backend the job used and its last error."""
+        engine = getattr(job, "engine", None)
+        error = getattr(job, "engine_error", None)
+        parts = []
+        if engine:
+            parts.append(f"Engine: {engine}")
+        if error:
+            parts.append(f"Error: {error}")
+        if parts:
+            item.setToolTip("\n".join(parts))
 
     def update_queue_item(self, url, job, status):
         result = self.exists_in_queue(job.url)
         if not result["exists"]:
             self.add_queue_item(job, status)
             return
-        else:
-            item = result["data"]
-            item["status"] = status
-            self.queue_list.viewport().update()
-            return
+
+        for i in range(self.queue_list.count()):
+            item = self.queue_list.item(i)
+            data = item.data(Qt.ItemDataRole.UserRole)
+            if data["url"] != job.url:
+                continue
+            data["status"] = status
+            engine = getattr(job, "engine", None)
+            if engine:
+                data["engine"] = engine
+            item.setData(Qt.ItemDataRole.UserRole, data)
+            self._apply_engine_tooltip(item, job)
+            break
+
+        self.queue_list.viewport().update()
 
     def update_progress(self, title, status):
         for i in range(self.queue_list.count()):

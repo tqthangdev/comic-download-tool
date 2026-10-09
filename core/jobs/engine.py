@@ -4,14 +4,24 @@ import traceback
 import aiohttp
 from PyQt6.QtCore import QObject, pyqtSignal
 
-from core.crawler import Crawler
-from core.downloader import Downloader, CONTENT_TYPE_EXT
-from core import cuutruyen
-from core.job_manager import Job, JobManager
+from core.net.crawler import Crawler
+from core.net.downloader import Downloader, CONTENT_TYPE_EXT
+from core.scraping.sites import cuutruyen
+from core.jobs.job_manager import Job, JobManager
 from core.logger import logger
-from core.scraper import get_referer
 from core.utils import CONFIG, safe_filename
 from core.auth import auth_manager, AuthError
+from core.engines import gallerydl as gallerydl_engine
+from core.engines import selector
+from core.engines.base import (
+    DELETED,
+    DONE,
+    DONE_WITH_MISSING,
+    FAILED,
+    BackendError,
+)
+from core.engines.native import NativeBackend
+from core.engines.gallerydl import GalleryDLBackend
 
 
 class Engine(QObject):
@@ -35,6 +45,12 @@ class Engine(QObject):
         self.crawler = Crawler()
         self.downloader = Downloader()
         self.db = JobManager()
+        # The two download backends. `native` wraps the existing pipeline;
+        # `gallerydl` shells out to gallery-dl. The selector picks between them.
+        self.backends = {
+            "native": NativeBackend(self),
+            "gallerydl": GalleryDLBackend(self),
+        }
         self.running = False
         self.active_jobs = (
             {}
@@ -316,47 +332,22 @@ class Engine(QObject):
                 await self.db.aupdate_status(job.url, "running")
                 logger.info(f"[W{wid}] {job.title}")
 
-                if not job.chapters:
-                    data = await self.crawl_job(job)
-                    job.chapters = data.get("chapters") or []
-                    job.thumb = data.get("thumb") or ""
-                    # scraper.py's find_genres() returns list[dict({name, slug, url})];
-                    # normalize to list[str] here so job.genres and the DB column
-                    # both deal with the same simple shape from now on.
-                    job.genres = self._normalize_genres(data.get("genres"))
-                    data["genres"] = job.genres
-                    if job.chapters:
-                        await self.db.aupdate_chapters(job.url, job.chapters)
-                    if job.thumb:
-                        await self.db.aupdate_thumb(job.url, job.thumb)
-                    if job.genres:
-                        await self.db.aupdate_genres(job.url, job.genres)
-                else:
-                    data = {
-                        "title": job.title,
-                        "thumb": job.thumb or "",
-                        "referer": job.referer or get_referer(job.url) or "",
-                        "chapters": job.chapters,
-                        "genres": self._normalize_genres(job.genres),
-                    }
+                outcome, used = await self._download_with_fallback(job)
+                await self.db.aupdate_engine(job.url, used)
 
-                has_failed, has_missing, missing_details = await self.download_job(
-                    job, data
-                )
-
-                if has_failed == "deleted":
+                if outcome.status == DELETED:
                     # Job was removed by the user mid-download; its DB record
                     # is already gone, so there's nothing left to update.
                     logger.info(f"[{job.title}] Skipped finishing — job was deleted.")
-                elif has_failed:
+                elif outcome.status == FAILED:
                     await self.db.aupdate_status(job.url, "failed")
                     self.progress.emit(job.title, "Failed")
                     logger.warning(
-                        f"[{job.title}] Has failed images, marking Failed."
+                        f"[{job.title}] Download failed, marking Failed."
                     )
-                elif has_missing:
+                elif outcome.status == DONE_WITH_MISSING:
                     await self.finish_job(
-                        job, missing=True, missing_details=missing_details
+                        job, missing=True, missing_details=outcome.missing_details
                     )
                 else:
                     await self.finish_job(job)
@@ -386,8 +377,113 @@ class Engine(QObject):
     def has_local_data(self, job):
         return job.save_path.exists() and any(job.save_path.iterdir())
 
-    async def crawl_job(self, job):
-        return await self.crawler.get_chapters(job.url, site_id=job.site_id)
+    # ------------------------------------------------------------------
+    # Backend selection (native vs gallery-dl)
+    # ------------------------------------------------------------------
+
+    def available_backends(self) -> dict:
+        """Backends usable right now (gallery-dl only when it is installed)."""
+        available = {"native": self.backends["native"]}
+        if gallerydl_engine.available():
+            available["gallerydl"] = self.backends["gallerydl"]
+        return available
+
+    def backend_plan(self, url: str, preferred: str = None):
+        """Ordered [(name, backend)] to try for `url`, primary first."""
+        available = self.available_backends()
+        return [
+            (name, available[name])
+            for name in selector.candidates(url, available.keys(), preferred)
+        ]
+
+    async def probe(self, url: str, site_id=None, engine: str = None):
+        """Story metadata for the preview, using the configured backend.
+
+        Falls back once to the other backend when the primary finds nothing
+        (e.g. the heuristic engine cannot read a site gallery-dl supports).
+        Returns (StoryMeta, backend_name). A bot wall propagates untouched so
+        the GUI keeps showing its dedicated message.
+        """
+        plan = self.backend_plan(url, engine)
+        if not plan:
+            raise BackendError("no download backend available")
+
+        last_error = None
+        for attempt, (name, backend) in enumerate(plan):
+            try:
+                meta = await backend.probe(url, site_id=site_id)
+            except BackendError as e:
+                last_error = e
+                if attempt + 1 < len(plan) and selector.fallback_allowed(e.code, name):
+                    logger.info(f"[probe] '{name}' cannot handle it, trying next backend")
+                    continue
+                raise
+
+            if meta.chapters or attempt + 1 >= len(plan):
+                return meta, name
+
+            logger.info(f"[probe] '{name}' found no chapters, trying next backend")
+
+        raise last_error or BackendError("no download backend available")
+
+    async def _ensure_metadata(self, job, backend) -> None:
+        """Fill/save the chapter list via the chosen backend.
+
+        A no-op when the preview already populated `job.chapters` (the usual
+        case) — the fallback path re-probes with the other backend.
+        """
+        if job.chapters:
+            return
+
+        meta = await backend.probe(job.url, site_id=job.site_id)
+        job.chapters = meta.chapters
+        job.thumb = meta.thumb
+        # scraper.py's find_genres() returns list[dict({name, slug, url})];
+        # normalize to list[str] so job.genres and the DB column share one shape.
+        job.genres = self._normalize_genres(meta.genres)
+        if meta.referer:
+            job.referer = meta.referer
+
+        if job.chapters:
+            await self.db.aupdate_chapters(job.url, job.chapters)
+        if job.thumb:
+            await self.db.aupdate_thumb(job.url, job.thumb)
+        if job.genres:
+            await self.db.aupdate_genres(job.url, job.genres)
+
+    async def _download_with_fallback(self, job):
+        """Run the job on its backend, falling back once to the other.
+
+        Returns (JobOutcome, engine_name_used).
+        """
+        plan = self.backend_plan(job.url, job.engine)
+        if not plan:
+            raise BackendError("no download backend available")
+
+        last_error = None
+        for attempt, (name, backend) in enumerate(plan):
+            if attempt > 0:
+                await self.db.aupdate_engine_fallback_used(job.url, True)
+                logger.warning(f"[{job.title}] Falling back to engine '{name}'")
+
+            try:
+                await self._ensure_metadata(job, backend)
+                outcome = await backend.download(job)
+            except AuthError:
+                raise
+            except BackendError as e:
+                last_error = e
+                await self.db.aupdate_engine_error(job.url, str(e))
+                if attempt + 1 < len(plan) and selector.fallback_allowed(e.code, name):
+                    continue
+                raise
+
+            if outcome.status != FAILED or attempt + 1 >= len(plan):
+                return outcome, name
+
+            await self.db.aupdate_engine_error(job.url, "download failed")
+
+        raise last_error or BackendError("download failed")
 
     async def download_job(self, job, data):
         await self._download_thumb(job, data)
@@ -506,7 +602,7 @@ class Engine(QObject):
     async def _build_chapter_pdfs(self, job):
         """Turn each downloaded chapter into a single PDF, one at a time so the
         queue can show how far the conversion has got."""
-        from core import pdf
+        from core.export import pdf
 
         folders = pdf.chapter_folders(job.save_path)
         total = len(folders)

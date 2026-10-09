@@ -13,16 +13,16 @@ from PyQt6.QtGui import QPixmap, QCursor, QIcon
 from PyQt6.QtWidgets import QApplication, QDialog, QWidget, QHBoxLayout, QMessageBox, QPushButton
 from PyQt6.QtCore import QSettings, QTimer, Qt, QEvent
 
-from gui.ui_left import LeftPanel
-from gui.ui_right import RightPanel
-from gui.restore_dialog import RestoreDialog
-from gui.login_dialog import prompt_login
+from gui.panels.ui_left import LeftPanel
+from gui.panels.ui_right import RightPanel
+from gui.dialogs.restore_dialog import RestoreDialog
+from gui.dialogs.login_dialog import prompt_login
 from gui.cursor_utils import apply_pointer_cursors
 from gui.theme import MAIN_WINDOW_STYLE
 from core.logger import logger
 from core.i18n import tr, add_listener
 from core.auth import auth_manager
-from core.scraper import BotProtectionError
+from core.scraping.scraper import BotProtectionError
 
 
 class MainWindow(QWidget):
@@ -44,7 +44,7 @@ class MainWindow(QWidget):
 
         # Set the main window icon (works both in development and after building)
         base = Path(sys.executable).parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent.parent
-        icon_path = base / "assets" / "icon.png"
+        icon_path = base / "assets" / "app" / "icon.png"
         if icon_path.exists():
             self.setWindowIcon(QIcon(str(icon_path)))
 
@@ -75,6 +75,7 @@ class MainWindow(QWidget):
         self._closing = False
         self._loaded_data = None  # scraper result (title/thumb/referer/chapters) of the URL being previewed
         self._loaded_site_id = None  # site_id (core/auth) the previewed URL belongs to, or None if public
+        self._loaded_engine = None  # backend (native/gallerydl) that produced the preview
         self._shutdown_cancelled = False
         self._shutdown_seconds_left = 0
         self._update_pause_button()
@@ -242,8 +243,16 @@ class MainWindow(QWidget):
         self.left.on_loading(True)
 
         try:
-            data = await self.engine.crawler.get_chapters(url, site_id=site_id)
+            override = self.left.engine_choice()
+            meta, engine_name = await self.engine.probe(
+                url, site_id=site_id, engine=override
+            )
+            data = meta.as_dict()
             self._loaded_data = data
+            # Record the engine that ACTUALLY produced the preview. When the
+            # user pins one that cannot handle the URL, probe() falls back to the
+            # other one, and that is what the job must remember.
+            self._loaded_engine = engine_name
 
             title = data.get("title", "")
             thumb = data.get("thumb", "")
@@ -269,7 +278,7 @@ class MainWindow(QWidget):
 
                 # A bot-walled host serves the cover only with the challenge
                 # clearance the stealth browser earned (UA + cookies).
-                from core import stealth
+                from core.net import stealth
                 clearance_headers = stealth.headers_for(thumb)
                 if clearance_headers:
                     headers.update(clearance_headers)
@@ -365,7 +374,7 @@ class MainWindow(QWidget):
 
         try:
 
-            from core.job_manager import Job
+            from core.jobs.job_manager import Job
             from core.utils import safe_filename
 
             save_path = (
@@ -388,6 +397,7 @@ class MainWindow(QWidget):
                 thumb=loaded.get("thumb") or None,
                 genres=loaded.get("genres") or None,
                 site_id=site_id,
+                engine=self._loaded_engine,
             )
 
             # FIX: no longer guess "already_queued" from the UI list; let
@@ -454,7 +464,7 @@ class MainWindow(QWidget):
             )
             return
 
-        from core.job_manager import Job
+        from core.jobs.job_manager import Job
         from core.utils import safe_filename, CONFIG
 
         if not os.path.exists(path):
@@ -481,7 +491,7 @@ class MainWindow(QWidget):
             )
             return
 
-        from gui.add_jobs_dialog import AddJobsDialog
+        from gui.dialogs.add_jobs_dialog import AddJobsDialog
 
         modal = AddJobsDialog(self)
         modal.set_progress(0, len(links))
@@ -527,9 +537,14 @@ class MainWindow(QWidget):
         async def process(url):
             site_id = site_map.get(url)
             data = None
+            engine_name = None
             try:
                 async with semaphore:
-                    data = await self.engine.crawler.get_chapters(url, site_id=site_id)
+                    override = self.left.engine_choice()
+                    meta, engine_name = await self.engine.probe(
+                        url, site_id=site_id, engine=override
+                    )
+                    data = meta.as_dict()
             except Exception as e:
                 logger.error(f"[add_from_file] Skipped {url}: {e}")
 
@@ -545,6 +560,7 @@ class MainWindow(QWidget):
                     thumb=data.get("thumb") or None,
                     genres=data.get("genres") or None,
                     site_id=site_id,
+                    engine=engine_name,
                 )
 
                 async with db_lock:
@@ -987,7 +1003,7 @@ class MainWindow(QWidget):
 
         finally:
             try:
-                from core import stealth
+                from core.net import stealth
                 await stealth.shutdown()
             except Exception:
                 logger.exception("Failed to shut down stealth browser")
@@ -1004,7 +1020,7 @@ class MainWindow(QWidget):
 
         finally:
             try:
-                from core import stealth
+                from core.net import stealth
                 await stealth.shutdown()
             except Exception:
                 logger.exception("Failed to shut down stealth browser")

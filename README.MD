@@ -65,6 +65,35 @@ Settings are stored in `data/config.json`, created automatically next to the app
 | `download_genres` | Save genres to a `genres.txt` file when downloading |
 | `language` | UI language (`vi` or `en`) |
 | `user_agent` | Custom HTTP User-Agent |
+| `engine_default` | Download engine: `native` (default) or `gallerydl` |
+| `engine_fallback` | Retry a job once on the other engine when one fails |
+| `engine_overrides` | Per-domain engine, e.g. `{"example.com": "gallerydl"}` |
+| `gallerydl` | gallery-dl settings (`executable`, `extra_args`, `sleep_request`, `retries`, `timeout`) |
+
+## Download engines
+
+Two engines can fetch a story. Pick one with the **Engine** dropdown (Auto / Native / gallery-dl); Auto follows `engine_default` and falls back to the other engine when a site is not supported.
+
+| Engine | How it works | Sites |
+| :--- | :--- | :--- |
+| **native** (default) | Heuristic scraper + built-in aiohttp downloader (no per-site selectors), plus API special cases for cuutruyen.net and nhentai.net. | The Vietnamese comic sites this project was built for. |
+| **gallery-dl** | Runs [gallery-dl](https://github.com/mikf/gallery-dl) as a separate process (optional extra). | The ~4900 extractors gallery-dl ships. |
+
+Engine matrix (measured with `tools/engine_compare.py`):
+
+| Site | native | gallery-dl |
+| :--- | :---: | :---: |
+| sayhentai.cx | ✅ | ❌ no extractor |
+| nettruyen.gg | ✅ | ❌ no extractor |
+| hentaivn / hentaivnreal.com | ✅ | ❌ no extractor |
+| cmangax18 | ✅ | ❌ no extractor |
+| cuutruyen.net (DRM) | ✅ | ❌ no extractor |
+| nhentai.net | ✅ | ✅ |
+| mangadex.org | — | ✅ |
+
+> gallery-dl is a **secondary** engine: it does not cover the Vietnamese sites the native engine handles, so `engine_default` stays `native`. Its value is sites native cannot read, the automatic fallback, and per-domain `engine_overrides`.
+>
+> gallery-dl is licensed **GPL-2.0**. It is only ever executed (never imported in-process); a release build bundles it via the `gallerydl` optional extra.
 
 ## Build
 

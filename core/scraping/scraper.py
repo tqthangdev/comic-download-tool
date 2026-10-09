@@ -905,7 +905,7 @@ def scrape(
             url, cookies=cookies, extra_headers=extra_headers, debug=debug
         )
 
-    from core import nhentai
+    from core.scraping.sites import nhentai
 
     if nhentai.is_nhentai_url(url):
         return nhentai.scrape(

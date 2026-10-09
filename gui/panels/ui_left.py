@@ -106,6 +106,16 @@ class LeftPanel(QWidget):
         mode_layout.addWidget(self.rb_auto)
         mode_layout.addStretch()
 
+        # Engine selector: Auto lets the selector choose (native first, with
+        # gallery-dl for sites it cannot read); the others pin one backend.
+        self.engine_label = QLabel(tr("engine"))
+        self.engine_combo = QComboBox()
+        self.engine_combo.addItem(tr("engine_auto"), None)
+        self.engine_combo.addItem(tr("engine_native"), "native")
+        self.engine_combo.addItem(tr("engine_gallerydl"), "gallerydl")
+        mode_layout.addWidget(self.engine_label)
+        mode_layout.addWidget(self.engine_combo)
+
         self.rb_manual.toggled.connect(self._on_mode_changed)
         self.rb_auto.toggled.connect(self._on_mode_changed)
 
@@ -313,7 +323,7 @@ class LeftPanel(QWidget):
         self.loading = QLabel()
         self.loading.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        self.movie = QMovie(str(get_resource_path("assets/loading.gif")))
+        self.movie = QMovie(str(get_resource_path("assets/spinners/loading.gif")))
         self.movie.setScaledSize(QSize(48, 48))
 
         self.loading.setMovie(self.movie)
@@ -450,6 +460,22 @@ class LeftPanel(QWidget):
         if hasattr(self, "rb_manual"):
             self.rb_manual.setText(tr("mode_manual"))
             self.rb_auto.setText(tr("mode_auto"))
+        if hasattr(self, "engine_combo"):
+            self.engine_label.setText(tr("engine"))
+            self.engine_combo.setItemText(0, tr("engine_auto"))
+            self.engine_combo.setItemText(1, tr("engine_native"))
+            self.engine_combo.setItemText(2, tr("engine_gallerydl"))
+
+    # =========================
+    # ENGINE SELECTION
+    # =========================
+    def engine_choice(self):
+        """The selected engine: None ("Auto"), "native" or "gallerydl".
+
+        None means "let core.engines.selector decide" (config default +
+        per-domain overrides + fallback).
+        """
+        return self.engine_combo.currentData()
 
     # =========================
     # SETTINGS MODAL (read/write config.json)
@@ -469,7 +495,7 @@ class LeftPanel(QWidget):
     # VERSION / UPDATE MODAL
     # =========================
     def open_version(self):
-        from gui.version_dialog import VersionDialog
+        from gui.dialogs.version_dialog import VersionDialog
 
         dialog = VersionDialog(self)
         dialog.exec()

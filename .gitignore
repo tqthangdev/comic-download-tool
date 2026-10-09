@@ -155,7 +155,9 @@ $RECYCLE.BIN/
 feedback.md
 rules.md
 account.md
-flow.md
 
 # Chromium profile used by the stealth (nodriver) fallback
 data/stealth_profile/
+
+# gallery-dl backend: per-job temp download/resume cache
+data/gallerydl/

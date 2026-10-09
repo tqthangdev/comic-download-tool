@@ -21,6 +21,9 @@ class Job:
     thumb: str = field(default=None)      # cover image URL from scraper.py
     site_id: str = field(default=None)    # registered site id in core/auth (None = public, no login needed)
     genres: list = field(default=None)    # genres derived from scraper (list of strings)
+    engine: str = field(default=None)     # backend actually used: "native" / "gallerydl"
+    engine_fallback_used: int = field(default=None)  # 1 when the job was retried on the other engine
+    engine_error: str = field(default=None)          # last engine error (debug / tooltip)
 
 
 class JobManager:
@@ -93,6 +96,21 @@ class JobManager:
                     "ALTER TABLE jobs ADD COLUMN genres TEXT"
                 )
                 self.conn.commit()
+            if "engine" not in cols:
+                self.conn.execute(
+                    "ALTER TABLE jobs ADD COLUMN engine TEXT"
+                )
+                self.conn.commit()
+            if "engine_fallback_used" not in cols:
+                self.conn.execute(
+                    "ALTER TABLE jobs ADD COLUMN engine_fallback_used INTEGER"
+                )
+                self.conn.commit()
+            if "engine_error" not in cols:
+                self.conn.execute(
+                    "ALTER TABLE jobs ADD COLUMN engine_error TEXT"
+                )
+                self.conn.commit()
 
     # ------------------------------------------------------------------
     # CRUD (synchronous - kept for internal use / startup, not the hot path)
@@ -136,16 +154,34 @@ class JobManager:
             return None
         return genres if isinstance(genres, list) else None
 
+    @staticmethod
+    def _row_to_job(row) -> Job:
+        return Job(
+            url=row["url"],
+            title=row["title"],
+            save_path=Path(row["save_path"]),
+            current_chap=row["current_chap"],
+            status=row["status"],
+            chapters=JobManager._chapters_from_json(row["chapters"]),
+            thumb=row["thumb"],
+            referer=row["referer"],
+            site_id=row["site_id"],
+            genres=JobManager._genres_from_json(row["genres"]),
+            engine=row["engine"],
+            engine_fallback_used=row["engine_fallback_used"],
+            engine_error=row["engine_error"],
+        )
+
     def add(self, job: Job):
         with self._lock:
             self.conn.execute(
                 """
-                INSERT OR IGNORE INTO jobs (url, title, save_path, status, current_chap, chapters, thumb, referer, site_id, genres)
-                VALUES (?, ?, ?, 'waiting', NULL, ?, ?, ?, ?, ?)
+                INSERT OR IGNORE INTO jobs (url, title, save_path, status, current_chap, chapters, thumb, referer, site_id, genres, engine)
+                VALUES (?, ?, ?, 'waiting', NULL, ?, ?, ?, ?, ?, ?)
                 """,
                 (job.url, job.title, str(job.save_path),
                  self._chapters_to_json(job.chapters), job.thumb, job.referer, job.site_id,
-                 self._genres_to_json(job.genres)),
+                 self._genres_to_json(job.genres), job.engine),
             )
             self.conn.commit()
 
@@ -156,18 +192,7 @@ class JobManager:
             ).fetchone()
         if row is None:
             return None
-        return Job(
-            url=row["url"],
-            title=row["title"],
-            save_path=Path(row["save_path"]),
-            current_chap=row["current_chap"],
-            status=row["status"],
-            chapters=self._chapters_from_json(row["chapters"]),
-            thumb=row["thumb"],
-            referer=row["referer"],
-            site_id=row["site_id"],
-            genres=self._genres_from_json(row["genres"]),
-        )
+        return self._row_to_job(row)
 
     def update_status(self, url: str, status: str):
         with self._lock:
@@ -209,6 +234,30 @@ class JobManager:
             self.conn.execute(
                 "UPDATE jobs SET genres = ? WHERE url = ?",
                 (self._genres_to_json(genres), url),
+            )
+            self.conn.commit()
+
+    def update_engine(self, url: str, engine: str):
+        with self._lock:
+            self.conn.execute(
+                "UPDATE jobs SET engine = ? WHERE url = ?",
+                (engine, url),
+            )
+            self.conn.commit()
+
+    def update_engine_fallback_used(self, url: str, used: bool):
+        with self._lock:
+            self.conn.execute(
+                "UPDATE jobs SET engine_fallback_used = ? WHERE url = ?",
+                (1 if used else 0, url),
+            )
+            self.conn.commit()
+
+    def update_engine_error(self, url: str, error: str):
+        with self._lock:
+            self.conn.execute(
+                "UPDATE jobs SET engine_error = ? WHERE url = ?",
+                (error, url),
             )
             self.conn.commit()
 
@@ -265,21 +314,7 @@ class JobManager:
     def all_jobs(self) -> list[Job]:
         with self._lock:
             rows = self.conn.execute("SELECT * FROM jobs").fetchall()
-        return [
-            Job(
-                url=r["url"],
-                title=r["title"],
-                save_path=Path(r["save_path"]),
-                current_chap=r["current_chap"],
-                status=r["status"],
-                chapters=self._chapters_from_json(r["chapters"]),
-                thumb=r["thumb"],
-                referer=r["referer"],
-                site_id=r["site_id"],
-                genres=self._genres_from_json(r["genres"]),
-            )
-            for r in rows
-        ]
+        return [self._row_to_job(r) for r in rows]
 
     def get_restorable_jobs(self) -> list[Job]:
         with self._lock:
@@ -291,21 +326,7 @@ class JobManager:
             rows = self.conn.execute(
                 "SELECT * FROM jobs WHERE status IS NULL OR status != 'done' ORDER BY rowid"
             ).fetchall()
-        return [
-            Job(
-                url=r["url"],
-                title=r["title"],
-                save_path=Path(r["save_path"]),
-                current_chap=r["current_chap"],
-                status=r["status"],
-                chapters=self._chapters_from_json(r["chapters"]),
-                thumb=r["thumb"],
-                referer=r["referer"],
-                site_id=r["site_id"],
-                genres=self._genres_from_json(r["genres"]),
-            )
-            for r in rows
-        ]
+        return [self._row_to_job(r) for r in rows]
 
     # ------------------------------------------------------------------
     # ASYNC WRAPPERS - used in the hot path (inside the worker/download loop)
@@ -335,6 +356,18 @@ class JobManager:
     async def aupdate_genres(self, url: str, genres: list):
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, self.update_genres, url, genres)
+
+    async def aupdate_engine(self, url: str, engine: str):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self.update_engine, url, engine)
+
+    async def aupdate_engine_fallback_used(self, url: str, used: bool):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self.update_engine_fallback_used, url, used)
+
+    async def aupdate_engine_error(self, url: str, error: str):
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self.update_engine_error, url, error)
 
     async def areset_current_chap(self, url: str):
         loop = asyncio.get_running_loop()

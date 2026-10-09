@@ -45,6 +45,19 @@ def _setup_playwright_browsers_path():
     logger.info(f"[Playwright] Using portable build at: {portable_path}")
 
 
+# --- gallery-dl worker mode ---
+# The app re-runs this same executable as a child process to run the bundled
+# gallery-dl CLI (see core/engines/gallerydl.py). Keeping it out of process
+# isolates gallery-dl's GPL-2.0 code and lets a hung download be killed.
+# Handled before any Playwright/GUI setup on purpose.
+if "--gallery-dl-worker" in sys.argv:
+    _gdl_index = sys.argv.index("--gallery-dl-worker")
+    sys.argv = [sys.argv[0], *sys.argv[_gdl_index + 1:]]
+    import gallery_dl
+
+    sys.exit(gallery_dl.main())
+
+
 _setup_playwright_browsers_path()
 
 # --- Updater mode ---
@@ -65,7 +78,7 @@ from PyQt6.QtWidgets import QApplication
 from qasync import QEventLoop
 
 from gui.main_window import MainWindow
-from core.engine import Engine
+from core.jobs.engine import Engine
 
 from core.utils import CONFIG
 
@@ -74,7 +87,7 @@ def main():
 
     app = QApplication(sys.argv)
 
-    icon_path = _get_base_dir() / "assets" / "icon.png"
+    icon_path = _get_base_dir() / "assets" / "app" / "icon.png"
 
     if icon_path.exists():
         app.setWindowIcon(QIcon(str(icon_path)))
