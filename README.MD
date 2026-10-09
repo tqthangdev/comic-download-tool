@@ -80,18 +80,6 @@ Two engines can fetch a story. The app chooses automatically (`engine_default`, 
 | **native** (default) | Heuristic scraper + built-in aiohttp downloader (no per-site selectors), plus API special cases for cuutruyen.net and nhentai.net. | The Vietnamese comic sites this project was built for. |
 | **gallery-dl** | Runs [gallery-dl](https://github.com/mikf/gallery-dl) as a separate process (optional extra). | The ~4900 extractors gallery-dl ships. |
 
-Engine matrix (measured with `tools/engine_compare.py`):
-
-| Site | native | gallery-dl |
-| :--- | :---: | :---: |
-| sayhentai.cx | ✅ | ❌ no extractor |
-| nettruyen.gg | ✅ | ❌ no extractor |
-| hentaivn / hentaivnreal.com | ✅ | ❌ no extractor |
-| cmangax18 | ✅ | ❌ no extractor |
-| cuutruyen.net (DRM) | ✅ | ❌ no extractor |
-| nhentai.net | ✅ | ✅ |
-| mangadex.org | — | ✅ |
-
 > gallery-dl is a **secondary** engine: it does not cover the Vietnamese sites the native engine handles, so `engine_default` stays `native`. Its value is sites native cannot read, the automatic fallback, and per-domain `engine_overrides`.
 >
 > gallery-dl is licensed **GPL-2.0**. It is only ever executed (never imported in-process); a release build bundles it via the `gallerydl` optional extra.
