@@ -904,6 +904,14 @@ def scrape(
         return _scrape_cuutruyen(
             url, cookies=cookies, extra_headers=extra_headers, debug=debug
         )
+
+    from core import nhentai
+
+    if nhentai.is_nhentai_url(url):
+        return nhentai.scrape(
+            url, cookies=cookies, extra_headers=extra_headers, debug=debug
+        )
+
     return _extract_from_soup(
         fetch_soup(url, cookies=cookies, extra_headers=extra_headers), url, debug
     )

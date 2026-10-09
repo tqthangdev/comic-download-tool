@@ -217,6 +217,14 @@ class Crawler:
         raise last_error
 
     async def extract_images(self, url: str, site_id: Optional[str] = None) -> List[str]:
+        from core import nhentai
+
+        # nhentai serves a gallery's pages from its JSON API, not from the
+        # chapter HTML, so bypass the heuristics for its URLs.
+        if nhentai.is_nhentai_url(url):
+            loop = asyncio.get_running_loop()
+            return await loop.run_in_executor(None, nhentai.fetch_pages, url)
+
         if self._http_session is None:
             raise RuntimeError("HTTP session not set. Call crawler.set_http_session(session) first.")
 
