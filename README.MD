@@ -77,7 +77,7 @@ Two engines can fetch a story. The app chooses automatically (`engine_default`, 
 
 | Engine | How it works | Sites |
 | :--- | :--- | :--- |
-| **native** (default) | Heuristic scraper + built-in aiohttp downloader (no per-site selectors), plus API special cases for cuutruyen.net and nhentai.net. | The Vietnamese comic sites this project was built for. |
+| **native** (default) | Heuristic scraper + built-in aiohttp downloader (no per-site selectors). | The Vietnamese comic sites this project was built for. |
 | **gallery-dl** | Runs [gallery-dl](https://github.com/mikf/gallery-dl) as a separate process (optional extra). | The ~4900 extractors gallery-dl ships. |
 
 > gallery-dl is a **secondary** engine: it does not cover the Vietnamese sites the native engine handles, so `engine_default` stays `native`. Its value is sites native cannot read, the automatic fallback, and per-domain `engine_overrides`.
