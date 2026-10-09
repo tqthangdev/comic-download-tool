@@ -339,7 +339,7 @@ class LeftPanel(QWidget):
     # RESET VIEW
     # =========================
     def reset_view(self):
-        self.preview.reset()
+        self.preview.clear()
 
 
 class _ConfigDialog(QDialog):

@@ -187,14 +187,15 @@ class PreviewChapter(QWidget):
 
     def set_loading(self, show: bool) -> None:
         if show:
-            self.reset()
+            self.clear()
             self.loading.show()
             self.movie.start()
         else:
             self.movie.stop()
             self.loading.hide()
 
-    def reset(self) -> None:
+    def clear(self) -> None:
+        """Empty the preview: title, cover, format picker and chapter list."""
         self.set_title("")
         self.thumb.clear()
         self.format_area.hide()

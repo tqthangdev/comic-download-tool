@@ -551,6 +551,13 @@ class MainWindow(QWidget):
                         tr("already_queued")
                     )
 
+            # The story is in the queue now: clear the preview straight away so
+            # the next link can be pasted.
+            self._loaded_data = None
+            self._loaded_engine = None
+            self._loaded_site_id = None
+            self.left.preview.clear()
+
             self._update_pause_button()
             self.left._update_add_button()
 

@@ -56,6 +56,31 @@ _SPEC_EXCLUDES = (
     "libxcb",
 )
 
+# Modules the app never uses, but that something in the dependency tree drags
+# in. Excluding them stops their data files (Tcl/Tk, pikepdf's native libs)
+# from being collected at all.
+_DEAD_MODULE_EXCLUDES = (
+    "tkinter",
+    "_tkinter",
+    "pikepdf",
+)
+
+# Leftovers deleted from _internal after the build, in case a module slipped
+# past the excludes (globs, relative to _internal).
+_TRIM_GLOBS = (
+    "_tcl_data",
+    "_tk_data",
+    "libtcl*.so*",
+    "libtk*.so*",
+    "python3*/lib-dynload/_tkinter*",
+    "pikepdf",
+    "pikepdf.libs",
+)
+
+# Chromium ships a lot the scraper never needs: keep the English locales only
+# and drop the Widevine DRM module.
+_CHROMIUM_KEEP_LOCALES = ("en-US.pak", "en-GB.pak")
+
 # The GUI stylesheets reference these indicator icons by absolute path, so they
 # must be present inside the bundle or the checkboxes/radio buttons would
 # silently render without their custom icons.
@@ -332,7 +357,9 @@ def write_spec(name: str) -> Path:
         _SPEC_TEMPLATE
         .replace("@BROWSERS_PATH@", repr(str(browser_cache_dir())))
         .replace("@NAME@", repr(name))
-        .replace("@EXCLUDES@", repr(_SPEC_EXCLUDES if os.name != "nt" else ()))
+        .replace("@EXCLUDES@", repr(
+            _DEAD_MODULE_EXCLUDES + (_SPEC_EXCLUDES if os.name != "nt" else ())
+        ))
         .replace("@ICON@", repr(str(icon)) if os.name == "nt" and icon.exists() else "None")
     )
     spec_path = ROOT / "run.spec"
@@ -399,6 +426,44 @@ def verify_build(name: str) -> None:
     print("OK: No system GUI libraries bundled.")
 
 
+def trim_bundle(name: str) -> int:
+    """Delete files the app never uses, to shrink the bundle.
+
+    Covers leftovers the excludes miss (Tcl/Tk data, pikepdf) and Chromium
+    extras (every locale but English, the Widevine DRM module).
+    """
+    target = dist_dir(name)
+    internal = target / "_internal"
+    if not internal.is_dir():
+        return 0
+
+    before = dir_size(target)
+
+    for pattern in _TRIM_GLOBS:
+        for path in internal.glob(pattern):
+            if path.is_dir():
+                shutil.rmtree(path, ignore_errors=True)
+            else:
+                path.unlink(missing_ok=True)
+
+    for module in internal.glob("ms-playwright/chromium*/chrome-*"):
+        if not module.is_dir():
+            continue
+        shutil.rmtree(module / "WidevineCdm", ignore_errors=True)
+        locales = module / "locales"
+        if locales.is_dir():
+            for pak in locales.glob("*.pak"):
+                if pak.name not in _CHROMIUM_KEEP_LOCALES:
+                    pak.unlink(missing_ok=True)
+
+    saved = before - dir_size(target)
+    print(
+        f"\n=== Trimming bundle ===\n"
+        f"Removed {saved / (1024 * 1024):.1f} MB of unused files."
+    )
+    return saved
+
+
 def cleanup_temp() -> None:
     print("\n=== Removing temporary files ===")
     shutil.rmtree(ROOT / "build", ignore_errors=True)
@@ -425,6 +490,8 @@ def build(name: str, skip_browsers: bool) -> int:
     if os.name != "nt":
         for library in remove_system_libs(name):
             print(f"Removed bundled {library} (must come from the host)")
+
+    trim_bundle(name)
 
     verify_build(name)
     cleanup_temp()
