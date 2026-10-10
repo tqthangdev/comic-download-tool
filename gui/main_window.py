@@ -165,10 +165,10 @@ class MainWindow(QWidget):
             menu.addAction(act)
             return act
 
-        add("menu_select_files", self.select_files, "Ctrl+O")
+        add("menu_import_file", self.import_file, "Ctrl+I")
+        add("menu_export_queue", self.export_queue, "Ctrl+P")
         menu.addSeparator()
-        add("menu_settings", self.left.open_settings, "Ctrl+I")
-        menu.addSeparator()
+        add("menu_settings", self.left.open_settings, "Ctrl+S")
 
         # Language submenu
         language_menu = menu.addMenu(tr("menu_language"))
@@ -201,9 +201,8 @@ class MainWindow(QWidget):
             theme_menu.addAction(act)
 
         menu.addSeparator()
-        add("menu_check_version", self.left.open_version, "Ctrl+U")
+        add("menu_version", self.left.open_version)
         add("menu_about", self.left.open_about)
-        menu.addSeparator()
         add("menu_quit", self.close, "Ctrl+Q")
 
     def set_language(self, code: str):
@@ -215,7 +214,7 @@ class MainWindow(QWidget):
             CONFIG.update(new_config)
         set_lang(code)
 
-    def select_files(self):
+    def import_file(self):
         """Menu action: pick a link file and add every URL in it to the queue."""
         from PyQt6.QtWidgets import QFileDialog
         from core.utils import parse_link_file
@@ -235,6 +234,43 @@ class MainWindow(QWidget):
             return
 
         asyncio.ensure_future(self.add_jobs_from_file(path))
+
+    def export_queue(self):
+        """Menu action: pick a file and write every queued URL to it."""
+        from PyQt6.QtWidgets import QFileDialog
+        from pathlib import Path
+
+        path, _ = QFileDialog.getSaveFileName(
+            self, tr("export_queue_title"), "export_queue_link.txt", f"{tr('all_files')} (*)"
+        )
+
+        if not path:
+            return
+
+        if Path(path).suffix.lower() != ".txt":
+            path += ".txt"
+
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                for i in range(self.right.queue_list.count()):
+                    item = self.right.queue_list.item(i)
+                    data = item.data(Qt.ItemDataRole.UserRole)
+                    if data and "url" in data:
+                        f.write(f"{data['url']}\n")
+
+            QMessageBox.information(
+                self,
+                tr("notify"),
+                tr("export_queue_done").format(count=self.right.queue_list.count()),
+            )
+
+        except Exception as e:
+            logger.error(f"Failed to export queue: {e}", exc_info=True)
+            QMessageBox.critical(
+                self,
+                tr("error"),
+                f"{tr('export_queue_failed')}:\n{e}",
+            )
 
     def _start_restore(self):
         self.restore_modal = RestoreDialog(self)
