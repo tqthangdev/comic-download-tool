@@ -18,6 +18,7 @@ from PyQt6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QLabel,
+    QMessageBox,
     QProgressBar,
     QTextEdit,
     QVBoxLayout,
@@ -27,6 +28,7 @@ from core.i18n import tr
 from core.logger import logger
 from core.updater.checker import UpdateError, check_for_update
 from core.updater.installer import InstallError, prepare_update, spawn_updater
+from core.updater.version import display_version
 from gui.cursor_utils import apply_pointer_cursors
 
 
@@ -56,6 +58,10 @@ class VersionDialog(QDialog):
 
         self.progress = QProgressBar()
         self.progress.setRange(0, 100)
+        # The percentage is already in the status label — keep the bar itself
+        # text-free and slim.
+        self.progress.setTextVisible(False)
+        self.progress.setFixedHeight(8)
         self.progress.setVisible(False)
 
         self.buttons = QDialogButtonBox()
@@ -68,9 +74,9 @@ class VersionDialog(QDialog):
         self.btn_update.setEnabled(False)
 
         layout.addWidget(self.status_label)
+        layout.addWidget(self.progress)
         layout.addWidget(self.notes_title)
         layout.addWidget(self.notes)
-        layout.addWidget(self.progress)
         layout.addWidget(self.buttons)
 
         self._show_update_parts(False)
@@ -142,7 +148,9 @@ class VersionDialog(QDialog):
         self.progress.setValue(0)
         self.progress.setVisible(True)
         self.status_label.setText(
-            tr("update_downloading_unknown").format(version=self._info.latest)
+            tr("update_downloading_unknown").format(
+                version=display_version(self._info.latest), done="0.0"
+            )
         )
 
         info = self._info
@@ -159,14 +167,25 @@ class VersionDialog(QDialog):
         self.staged.emit(app_root)
 
     def _on_progress(self, done: int, total: int):
+        version = display_version(self._info.latest) if self._info else ""
+        done_mb = f"{done / 1048576:.1f}"
+
         if not total:
-            self.progress.setRange(0, 0)  # unknown length: busy indicator
+            # Server did not report a length: busy indicator + bytes so far.
+            self.progress.setRange(0, 0)
+            self.status_label.setText(
+                tr("update_downloading_unknown").format(version=version, done=done_mb)
+            )
             return
+
         percent = int(done * 100 / total)
         self.progress.setValue(percent)
         self.status_label.setText(
             tr("update_downloading").format(
-                version=self._info.latest if self._info else "", percent=percent
+                version=version,
+                percent=percent,
+                done=done_mb,
+                total=f"{total / 1048576:.1f}",
             )
         )
 
@@ -181,6 +200,12 @@ class VersionDialog(QDialog):
 
         self.progress.setRange(0, 100)
         self.progress.setValue(100)
+        
+        # The build is staged, so there is no way back: lock the dialog (no
+        # "Later") while the update takes over.
+        self.btn_later.setEnabled(False)
+        self.btn_update.setVisible(False)
+
         self.status_label.setText(tr("update_ready"))
 
         try:
@@ -189,7 +214,16 @@ class VersionDialog(QDialog):
             logger.error(f"[updater] cannot start the updater process: {e}")
             self.status_label.setText(tr("update_failed").format(error=str(e)))
             self._busy = False
+            self.btn_later.setEnabled(True)
             return
+
+        # Tell the user the app is about to restart for the update.
+        version = display_version(self._info.latest) if self._info else ""
+        QMessageBox.information(
+            self,
+            tr("version_title"),
+            tr("update_restart_confirm").format(version=version),
+        )
 
         # The updater waits for this process to exit before touching anything.
         # A QDialog is its own top-level window, so closing "the window" would

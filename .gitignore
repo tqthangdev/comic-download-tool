@@ -161,3 +161,6 @@ data/stealth_profile/
 
 # gallery-dl backend: per-job temp download/resume cache
 data/gallerydl/
+
+# Auto-updater staging area (downloaded package + extracted build)
+.update/

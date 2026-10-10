@@ -166,6 +166,18 @@ jobs:
 
     steps:
       # ==========================================
+      # CHECKOUT (needed for the release notes)
+      # ==========================================
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Full history + tags so `git describe` / `git log` span the range
+          # between the previous tag and this one.
+          fetch-depth: 0
+
+
+      # ==========================================
       # DOWNLOAD LINUX BUILD
       # ==========================================
 
@@ -204,6 +216,28 @@ jobs:
 
 
       # ==========================================
+      # BUILD RELEASE NOTES
+      # ==========================================
+
+      - name: Build release notes
+        shell: bash
+        run: |
+          set -e
+
+          tag="${GITHUB_REF_NAME}"
+          previous="$(git describe --tags --abbrev=0 "${tag}^" 2>/dev/null || true)"
+          range="${previous:+${previous}..}${tag}"
+
+          {
+            echo
+            git log --no-merges --pretty='- %s' "${range}" 2>/dev/null || true
+          } > release-notes.md
+
+          echo "=== release-notes.md ==="
+          cat release-notes.md
+
+
+      # ==========================================
       # CREATE GITHUB RELEASE
       # ==========================================
 
@@ -213,4 +247,4 @@ jobs:
           files: |
             release/ComicDownloadTool-linux.zip
             release/ComicDownloadTool-windows.zip
-          generate_release_notes: true
+          body_path: release-notes.md
