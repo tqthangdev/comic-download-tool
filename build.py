@@ -120,6 +120,14 @@ try:
 except Exception:
     GALLERYDL_HIDDEN = []
 
+# certifi's CA bundle: the frozen build must carry its own trusted roots for TLS
+# (run.py points SSL_CERT_FILE/REQUESTS_CA_BUNDLE at it).
+try:
+    from PyInstaller.utils.hooks import collect_data_files as _collect_certifi
+    datas += _collect_certifi("certifi")
+except Exception:
+    pass
+
 # ==========================================
 # PLAYWRIGHT CHROMIUM
 # ==========================================
@@ -157,6 +165,7 @@ a = Analysis(
         "aiohttp",
         "bs4",
         "lxml",
+        "certifi",
     ] + GALLERYDL_HIDDEN,
 
     hookspath=[],

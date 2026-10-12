@@ -17,6 +17,9 @@ dependencies = [
     "beautifulsoup4",
     "lxml",
     "requests",
+    # certifi's CA bundle is bundled into the build and pointed at via
+    # SSL_CERT_FILE so a frozen app can verify TLS (see run.py).
+    "certifi",
     "nodriver",
     # GUI
     "PyQt6",

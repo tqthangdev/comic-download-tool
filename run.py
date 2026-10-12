@@ -45,6 +45,29 @@ def _setup_playwright_browsers_path():
     logger.info(f"[Playwright] Using portable build at: {portable_path}")
 
 
+def _use_bundled_ca_bundle():
+    """Point TLS at certifi's CA bundle.
+
+    A frozen build carries the OpenSSL/CA layout of the machine it was built on,
+    which may not exist on the user's system -> every request then fails with
+    "unable to get local issuer certificate". certifi's bundle ships with the
+    app, so prefer it unless the environment already says otherwise.
+    """
+    try:
+        import certifi
+    except Exception:
+        return
+
+    bundle = certifi.where()
+    if os.path.exists(bundle):
+        os.environ.setdefault("SSL_CERT_FILE", bundle)
+        os.environ.setdefault("REQUESTS_CA_BUNDLE", bundle)
+
+
+# Must run before any TLS context is created (updater, gallery-dl worker, engine).
+_use_bundled_ca_bundle()
+
+
 # --- Updater mode ---
 # The app re-runs this same executable (or this script, from source) as a
 # separate process to replace the installation, so the swap never happens while
