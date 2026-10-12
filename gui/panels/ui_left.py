@@ -44,8 +44,8 @@ class LeftPanel(QWidget):
         layout.setSpacing(0)
 
         # ================= DOWNLOAD SETTINGS =================
-        source_group = QGroupBox(tr("source"))
-        source_layout = QVBoxLayout(source_group)
+        self.source_group = QGroupBox(tr("source"))
+        source_layout = QVBoxLayout(self.source_group)
         source_layout.setContentsMargins(6, 6, 6, 6)
         source_layout.setSpacing(6)
 
@@ -103,8 +103,8 @@ class LeftPanel(QWidget):
         source_layout.addWidget(self.btn_add, 1)
 
         # ================= OPTIONS (checkboxes) =================
-        options_group = QGroupBox(tr("options"))
-        options_layout = QVBoxLayout(options_group)
+        self.options_group = QGroupBox(tr("options"))
+        options_layout = QVBoxLayout(self.options_group)
         options_layout.setContentsMargins(6, 6, 6, 6)
         options_layout.setSpacing(6)
 
@@ -162,17 +162,17 @@ class LeftPanel(QWidget):
         self.set_session_name("")
 
         # ================= PREVIEW (cover/title/format/chapters) =================
-        preview_group = QGroupBox(tr("preview"))
-        preview_layout = QVBoxLayout(preview_group)
+        self.preview_group = QGroupBox(tr("preview"))
+        preview_layout = QVBoxLayout(self.preview_group)
         preview_layout.setContentsMargins(6, 6, 6, 6)
         preview_layout.setSpacing(6)
         
         self.preview = PreviewChapter()
         preview_layout.addWidget(self.preview, 1)
 
-        layout.addWidget(source_group, 0)
-        layout.addWidget(options_group, 0)
-        layout.addWidget(preview_group, 0)
+        layout.addWidget(self.source_group, 0)
+        layout.addWidget(self.options_group, 0)
+        layout.addWidget(self.preview_group, 0)
 
         # events that only affect this panel's own widgets
         self.btn_folder.clicked.connect(self.pick_folder)
@@ -270,6 +270,9 @@ class LeftPanel(QWidget):
     # UPDATE TEXT WHEN THE LANGUAGE CHANGES
     # =========================
     def retranslate(self):
+        self.source_group.setTitle(tr("source"))
+        self.options_group.setTitle(tr("options"))
+        self.preview_group.setTitle(tr("preview"))
         self.url_input.setPlaceholderText(tr("url_placeholder"))
         self.path_input.setPlaceholderText(tr("path_placeholder"))
         self.btn_paste.setText(tr("paste"))
@@ -285,7 +288,7 @@ class LeftPanel(QWidget):
         self.preview.retranslate()
 
     # =========================
-    # SETTINGS / ABOUT / VERSION MODALS (opened from the menu bar)
+    # SETTINGS / ABOUT MODALS (opened from the menu bar)
     # =========================
     def open_settings(self):
         from gui.dialogs.setting_dialog import SettingDialog
@@ -297,12 +300,6 @@ class LeftPanel(QWidget):
         from gui.dialogs.about_dialog import AboutDialog
 
         dialog = AboutDialog(self)
-        dialog.exec()
-
-    def open_version(self):
-        from gui.dialogs.version_dialog import VersionDialog
-
-        dialog = VersionDialog(self)
         dialog.exec()
 
     # =========================

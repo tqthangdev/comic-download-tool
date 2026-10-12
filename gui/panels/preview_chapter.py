@@ -39,11 +39,13 @@ class PreviewChapter(QWidget):
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
+        # Keep the header and the chapter tree tight together.
+        root.setSpacing(0)
 
         # ================= HEADER (spinner, cover+title, format) =================
         header = QWidget()
         header_main = QVBoxLayout(header)
-        header_main.setContentsMargins(4, 4, 4, 4)
+        header_main.setContentsMargins(4, 4, 4, 2)
         header_main.setSpacing(4)
 
         loading_layout = QHBoxLayout()
@@ -57,34 +59,39 @@ class PreviewChapter(QWidget):
         loading_layout.addStretch()
 
         info_layout = QHBoxLayout()
+        info_layout.setSpacing(6)
         self.thumb = QLabel()
         self.thumb.setFixedSize(THUMBNAIL_SIZE)
         self.thumb.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
+        # Right of the cover: the title on top, then the output-format picker
+        # tucked into the space freed by the shorter title.
+        info_right = QVBoxLayout()
+        info_right.setContentsMargins(0, 0, 0, 0)
+        info_right.setSpacing(0)
+
         self.title_label = QLabel("")
         self.title_label.setObjectName("manga_title")
         self.title_label.setWordWrap(True)
-        # Fixed to the cover height: a longer title is cut with an ellipsis
+        # 25px shorter than the cover: a longer title is cut with an ellipsis
         # (see _fit_title) instead of growing the row.
-        self.title_label.setFixedHeight(self.thumb.height())
+        self.title_label.setFixedHeight(self.thumb.height() - 25)
         self.title_label.setAlignment(
             Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft
         )
-
-        info_layout.addWidget(self.thumb)
-        info_layout.addWidget(self.title_label, 1)
 
         format_area = QWidget()
         format_layout = QHBoxLayout(format_area)
 
         format_layout.setContentsMargins(0, 0, 0, 0)
-        format_layout.setSpacing(6)
+        format_layout.setSpacing(4)
 
         self.format_label = QLabel(tr("output_format"))
 
         self.format_combo = QComboBox()
         self.format_combo.addItem(tr("format_image"), IMAGE_FORMAT)
         self.format_combo.addItem(tr("format_pdf"), PDF_FORMAT)
+        self.format_combo.setFixedHeight(25)
 
         format_layout.addWidget(self.format_label)
         format_layout.addWidget(self.format_combo)
@@ -93,9 +100,15 @@ class PreviewChapter(QWidget):
         self.format_area = format_area
         self.format_area.hide()
 
+        info_right.addWidget(self.title_label)
+        info_right.addWidget(self.format_area)
+        info_right.addStretch()
+
+        info_layout.addWidget(self.thumb)
+        info_layout.addLayout(info_right, 1)
+
         header_main.addLayout(loading_layout)
         header_main.addLayout(info_layout)
-        header_main.addWidget(self.format_area)
 
         # ================= CHAPTER TREE =================
         self.tree = QTreeWidget()

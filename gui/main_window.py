@@ -222,10 +222,9 @@ class MainWindow(QWidget):
             theme_group.addAction(act)
             theme_menu.addAction(act)
 
-        # Settings / Version / About / Quit
+        # Settings / About / Quit
         add("menu_settings", self.left.open_settings, "Ctrl+S")
         menu.addSeparator()
-        add("menu_version", self.left.open_version)
         add("menu_about", self.left.open_about)
         add("menu_quit", self.close, "Ctrl+Q")
 
