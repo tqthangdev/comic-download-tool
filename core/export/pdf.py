@@ -10,6 +10,7 @@ PDF replaces the folder of images it was built from.
 
 from __future__ import annotations
 
+import io
 import shutil
 from pathlib import Path
 
@@ -37,6 +38,34 @@ def _chapter_images(chapter_dir: Path) -> list[Path]:
     )
 
 
+def _pdf_source(path: Path):
+    """What to hand img2pdf for one image.
+
+    JPEGs go through untouched (embedded losslessly). Anything with an alpha
+    channel — transparent webp/png, common on some sites — is flattened onto
+    white and re-encoded, because img2pdf raises AlphaChannelError instead of
+    guessing a background.
+    """
+    if path.suffix.lower() in (".jpg", ".jpeg"):
+        return str(path)
+
+    from PIL import Image
+
+    with Image.open(path) as image:
+        has_alpha = image.mode in ("RGBA", "LA", "PA") or (
+            image.mode == "P" and "transparency" in image.info
+        )
+        if not has_alpha:
+            return str(path)
+
+        rgba = image.convert("RGBA")
+        background = Image.new("RGB", rgba.size, (255, 255, 255))
+        background.paste(rgba, mask=rgba.split()[-1])
+        buffer = io.BytesIO()
+        background.save(buffer, format="JPEG", quality=95)
+        return buffer.getvalue()
+
+
 def build_chapter_pdf(chapter_dir: Path, pdf_path: Path) -> str:
     """Make sure `pdf_path` holds the images of `chapter_dir`, in filename order.
 
@@ -59,7 +88,7 @@ def build_chapter_pdf(chapter_dir: Path, pdf_path: Path) -> str:
 
         # JPEG pages are embedded as-is (lossless); other formats are handled
         # through Pillow, which img2pdf uses as its backend for them.
-        data = img2pdf.convert([str(p) for p in images])
+        data = img2pdf.convert([_pdf_source(p) for p in images])
 
         tmp_path = pdf_path.with_name(pdf_path.name + ".tmp")
         tmp_path.write_bytes(data)
