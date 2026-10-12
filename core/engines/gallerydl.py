@@ -96,10 +96,20 @@ def _extra_args() -> list:
     return [str(a) for a in args]
 
 
-def _work_dir(url: str) -> Path:
-    """Persistent per-job download folder (kept so `skip` gives resume)."""
-    digest = hashlib.sha1(url.encode("utf-8")).hexdigest()[:16]
-    path = gallerydl_conf.WORK_DIR / "jobs" / digest
+def _work_dir(url: str, session_id=None, job_id=None) -> Path:
+    """Persistent per-job download folder (kept so `skip` gives resume).
+
+    Scoped as ``.temp/<session_id>/<job_id>`` when the engine supplies both, so
+    removing a session also removes its scratch; otherwise it falls back to the
+    shared gallery-dl cache (standalone / tool use).
+    """
+    if session_id not in (None, "") and job_id not in (None, ""):
+        from core.sessions import job_scratch_dir
+
+        path = job_scratch_dir(session_id, job_id)
+    else:
+        digest = hashlib.sha1(url.encode("utf-8")).hexdigest()[:16]
+        path = gallerydl_conf.WORK_DIR / "jobs" / digest
     path.mkdir(parents=True, exist_ok=True)
     return path
 
@@ -280,7 +290,9 @@ class GalleryDLBackend:
 
     async def _run_json(self, url: str, site_id: Optional[str]) -> str:
         """Run ``--simulate --dump-json`` and return stdout."""
-        work = _work_dir(url)
+        session_id = getattr(self.engine, "session_id", None)
+        digest = hashlib.sha1(url.encode("utf-8")).hexdigest()[:12]
+        work = _work_dir(url, session_id, f"probe-{digest}")
         cookies = gallerydl_conf.export_session(
             site_id, urlparse(url).netloc, work / "cookies.txt"
         )
@@ -312,7 +324,9 @@ class GalleryDLBackend:
         return normalize_metadata(url, stdout)
 
     async def download(self, job, progress=None, cancel=None) -> JobOutcome:
-        work = _work_dir(job.url)
+        session_id = getattr(self.engine, "session_id", None)
+        job_id = getattr(job, "id", None)
+        work = _work_dir(job.url, session_id, job_id if job_id is not None else None)
         cookies = gallerydl_conf.export_session(
             job.site_id, urlparse(job.url).netloc, work / "cookies.txt"
         )

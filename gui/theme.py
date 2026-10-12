@@ -229,6 +229,15 @@ QWidget#detail_chapter {
 QLabel#manga_title { font-size: 16px; font-weight: bold; color: $title; }
 QLabel#dialog_title { font-size: 14px; font-weight: bold; color: $title; }
 
+/* ---------- session dialog ---------- */
+QLabel#session_status { color: $fg_muted; }
+QLabel#session_empty  { color: $fg_muted; }
+QLabel#session_name   { color: $fg_muted; }
+QLineEdit#session_name_ro {
+    background: transparent;
+    border: 1px solid transparent;
+}
+
 /* ---------- queue list ---------- */
 QWidget#queue_list {
     background: transparent;

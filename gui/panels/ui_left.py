@@ -154,6 +154,13 @@ class LeftPanel(QWidget):
         shutdown_layout.addStretch()
         options_layout.addWidget(shutdown_row, 0)
 
+        # Name of the current session, shown under the shutdown option.
+        self._session_name = ""
+        self.session_label = QLabel()
+        self.session_label.setObjectName("session_name")
+        options_layout.addWidget(self.session_label, 0, Qt.AlignmentFlag.AlignLeft)
+        self.set_session_name("")
+
         # ================= PREVIEW (cover/title/format/chapters) =================
         preview_group = QGroupBox(tr("preview"))
         preview_layout = QVBoxLayout(preview_group)
@@ -214,6 +221,18 @@ class LeftPanel(QWidget):
             return 60
 
     # =========================
+    # CURRENT SESSION NAME
+    # =========================
+    def set_session_name(self, name: str):
+        """Show the current session's name under the shutdown option."""
+        self._session_name = name or ""
+        self.session_label.setText(
+            tr("session_label").format(name=self._session_name)
+            if self._session_name
+            else ""
+        )
+
+    # =========================
     # OUTPUT FORMAT
     # =========================
     def default_format(self) -> str:
@@ -262,6 +281,7 @@ class LeftPanel(QWidget):
         self.shutdown_delay.setToolTip(tr("shutdown_delay_hint"))
         self.shutdown_delay_unit.setText(tr("shutdown_seconds"))
         self.shutdown_delay_unit.setToolTip(tr("shutdown_delay_hint"))
+        self.set_session_name(self._session_name)
         self.preview.retranslate()
 
     # =========================

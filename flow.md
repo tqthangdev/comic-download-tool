@@ -37,8 +37,11 @@ comic-download-tool/
 │   │   ├── gallerydl_conf.py #  gallery-dl config + cookies.txt generation
 │   │   └── selector.py     #   Picks a backend (default / engine_overrides / fallback)
 │   ├── jobs/               # Job orchestration
-│   │   ├── engine.py       #   Worker pool, job orchestration, download loop
-│   │   └── job_manager.py  #   SQLite persistence (jobs.db) + Job dataclass
+│   │   ├── engine.py       #   Worker pool, job orchestration, download loop, sessions
+│   │   └── job_manager.py  #   SQLite persistence (one jobs_<id>.db per session) + Job
+│   ├── sessions/           # Session registry (one queue database per session)
+│   │   ├── __init__.py     #   Re-exports SessionStore / SessionInfo / helpers
+│   │   └── sessions.py     #   sessions.json registry, legacy migration, scratch cleanup
 │   ├── export/
 │   │   └── pdf.py          #   Chapter -> PDF export
 │   ├── updater/            # GitHub-release updater (check / download / verify / apply)
@@ -72,9 +75,12 @@ comic-download-tool/
 │   └── spinners/           #   spin-*.svg, loading.gif
 ├── data/                   # Runtime state (created next to the app; db/json are gitignored)
 │   ├── config.json         # User settings
-│   ├── jobs.db             # SQLite queue/history
-│   ├── gallerydl/          # gallery-dl backend temp/resume cache
+│   ├── sessions.json       # Session registry: [{id,name,created_at}] + current
+│   ├── jobs_<id>.db        # One SQLite queue/history database per session
+│   ├── jobs.db.bak         # Legacy single DB, kept after the one-time migration
+│   ├── gallerydl/          # gallery-dl backend temp/resume cache (non-session fallback)
 │   └── sessions/<site>.json# Persisted login sessions
+├── .temp/<session>/<job>/  # Per-job scratch (download/resume state); gitignored
 ├── logs/<date>.log
 ├── ms-playwright/          # Portable Chromium when not installed at the default path
 ├── vendor/                 # Packages when installed with --no-venv
@@ -90,7 +96,8 @@ comic-download-tool/
 | Path | Where it lives | Purpose |
 | :--- | :--- | :--- |
 | `BASE_DIR` | executable folder when frozen, project root in dev (`core/utils.py`) | Root for writable data |
-| `DATA_DIR` | `BASE_DIR/data` | config, DB, sessions |
+| `DATA_DIR` | `BASE_DIR/data` | config, session registry, per-session DBs, auth sessions |
+| `.temp/` | `BASE_DIR/.temp` | per-session/job scratch (`.temp/<session>/<job>`) |
 | `logs/` | `BASE_DIR/logs` | `YYYY-MM-DD.log` (ERROR+) |
 | `ms-playwright/` | project/exe folder | Portable Chromium (only used if none at Playwright's default path) |
 
@@ -112,7 +119,7 @@ start.sh / start.bat
                   │     (crawling + file I/O + previews share this pool)
                   ├─ Engine(max_workers)      # worker pool + aiohttp session (created on Start)
                   └─ MainWindow(engine).show()
-                        └─ QTimer(100ms) -> RestoreDialog -> _restore_session()
+                        └─ QTimer(100ms) -> "Restore session?" prompt -> RestoreDialog -> _restore_session()
 ```
 
 ---
@@ -262,10 +269,11 @@ images, so the normal `download_batch` path downloads them (no DRM renderer, no 
 ```
 Pause  -> engine.stop(): running jobs -> "paused", re-queued, workers cancelled
 Resume -> requeue + engine.start() (save path re-applied from the input)
-Restore (at startup, RestoreDialog)
-       -> get_restorable_jobs(): every row whose status != "done" (waiting/paused/
-          running/failed/done_with_missing), oldest first
-          -> optionally re-based onto the current path input, status -> "waiting", queued
+Restore (at startup): the app first asks "Restore the current session's queue?"
+       -> Yes: RestoreDialog -> get_restorable_jobs() of the CURRENT session: every
+          row whose status != "done" (waiting/paused/running/failed/done_with_missing),
+          oldest first, re-based onto the current path input, status -> "waiting", queued
+       -> No:  a fresh empty session is created instead, nothing is restored
 ```
 
 ---
@@ -311,13 +319,46 @@ heuristics and read their own JSON API instead: cuutruyen.net and nhentai.net �
 
 ---
 
+## Sessions — one database per queue group
+
+A session is a self-contained queue stored in its own SQLite file; the registry keeps them
+apart and remembers which one is current.
+
+```
+data/sessions.json        # {current, sessions: [{id, name, created_at}]}
+data/jobs_<id>.db         # the session's jobs
+.temp/<id>/<job_id>/      # per-job scratch (gallery-dl resume state)
+
+menu Sessions
+   ├─ New      (Ctrl+N)  create a fresh empty session and switch to it
+   ├─ List              submenu of sessions; picking one confirms, then switches
+   └─ Manage   (Ctrl+M)  SessionDialog: New / Select / Edit-Save / Remove / Remove all
+
+Engine.activate_session(sid)   # must be stopped: close current DB, open the target,
+                               # clear the in-memory queue, re-queue unfinished jobs
+                               # ("waiting"); "done" jobs are shown but not re-queued
+Engine.delete_session(sid)     # registry + jobs_<id>.db + .temp/<id>; if it was the
+                               # current one, open another (or a fresh empty) session
+```
+
+* Job identity inside a session is `UNIQUE(url, format_key)` — the same URL in two output
+  formats is two jobs; across sessions the same URL is independent.
+* Renaming only edits the registry — the file name (and open connection) never changes.
+* Startup `cleanup_scratch()` drops `.temp` folders for sessions/jobs that no longer exist.
+* One-time migration: a legacy `data/jobs.db` is split into per-session files and kept as
+  `data/jobs.db.bak`.
+
+---
+
 ## 12. Database
 
-`data/jobs.db`, one table, `url` is the primary key:
+Each session has its own SQLite file `data/jobs_<id>.db`; a job is identified by
+`UNIQUE(url, format_key)` and carries an auto-increment `id` (used to scope its scratch):
 
 | Column | Notes |
 | :--- | :--- |
-| `url` | primary key |
+| `id` | auto-increment row id (scratch scoping) |
+| `url` + `format_key` | identity: `format_key` ∈ {`image`, `pdf`} |
 | `title`, `save_path` | display + output folder |
 | `status` | `waiting` / `running` / `paused` / `failed` / `done` / `done_with_missing` |
 | `current_chap` | resume point (1-based index into the chapter list); NULL for finished jobs so re-adding does a full pass |
@@ -326,6 +367,7 @@ heuristics and read their own JSON API instead: cuutruyen.net and nhentai.net �
 | `engine` | backend used/preferred: `native` / `gallerydl` (NULL = selector default) |
 | `engine_fallback_used` | 1 when the job was retried on the other engine |
 | `engine_error` | last backend error (debug / tooltip) |
+| `convert_to_pdf` | per-job output format (NULL = config default) |
 
 Writes from the async hot path go through `a*` wrappers (`aupdate_*`, `adelete`) so SQLite
 never blocks the Qt event loop; a `threading.Lock` guards the shared connection.

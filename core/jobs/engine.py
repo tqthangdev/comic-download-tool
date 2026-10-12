@@ -9,6 +9,13 @@ from core.net.downloader import Downloader, CONTENT_TYPE_EXT
 from core.scraping.sites import cuutruyen
 from core.jobs.job_manager import Job, JobManager
 from core.logger import logger
+from core.sessions import (
+    SessionStore,
+    cleanup_scratch,
+    delete_session_files,
+    delete_session_scratch,
+    session_db_path,
+)
 from core.utils import CONFIG, safe_filename
 from core.auth import auth_manager, AuthError
 from core.engines import gallerydl as gallerydl_engine
@@ -44,7 +51,12 @@ class Engine(QObject):
         self.workers = []
         self.crawler = Crawler()
         self.downloader = Downloader()
-        self.db = JobManager()
+        # One SQLite database per session; the registry tracks which is current.
+        self.session_store = SessionStore()
+        self.session_id = self.session_store.ensure_current().id
+        self.db = JobManager(session_db_path(self.session_id))
+        # Scratch (.temp/<session>/<job>) for sessions/jobs that are gone.
+        cleanup_scratch(self.session_store)
         # The two download backends. `native` wraps the existing pipeline;
         # `gallerydl` shells out to gallery-dl. The selector picks between them.
         self.backends = {
@@ -54,11 +66,11 @@ class Engine(QObject):
         self.running = False
         self.active_jobs = (
             {}
-        )  # url -> currently running Job, for stop() to retrieve
+        )  # (url, format_key) -> currently running Job, for stop() to retrieve
         self._run_task = None  # background task created by start()
-        # urls the user asked to delete while a job was actively downloading;
-        # checked by download_job() so it can bail out early instead of
-        # finishing the whole job after the record has already been removed.
+        # (url, format_key) the user asked to delete while a job was actively
+        # downloading; checked by download_job() so it can bail out early
+        # instead of finishing the whole job after the record was removed.
         self.deleted_urls = set()
 
     @staticmethod
@@ -80,24 +92,28 @@ class Engine(QObject):
         return genres
 
     async def add_job(self, job: Job):
-        existing = self.db.get_job(job.url)
+        # Identity within the session DB is (url, format_key).
+        format_key = job.format_key or JobManager.format_key_for(job)
+        job.format_key = format_key
+        existing = self.db.get_job(job.url, format_key)
 
         if existing:
             # Always prefer the save_path from the GUI (current input path),
             # not the old path stored in the DB. If the user changed the path,
             # persist it back to the DB so the next run stays in sync.
             if existing.save_path != job.save_path:
-                self.db.update_save_path(job.url, job.save_path)
+                self.db.update_save_path(job.url, format_key, job.save_path)
             job.current_chap = existing.current_chap  # keep the resume point
+            job.id = existing.id
             status = existing.status
             # An old (restored) job may lack chapters/thumb -> take them from the
             # GUI if available and store them so the next run does not re-crawl.
             if not existing.chapters and job.chapters:
-                await self.db.aupdate_chapters(job.url, job.chapters)
+                await self.db.aupdate_chapters(job.url, format_key, job.chapters)
             elif existing.chapters and not job.chapters:
                 job.chapters = existing.chapters
             if not existing.thumb and job.thumb:
-                await self.db.aupdate_thumb(job.url, job.thumb)
+                await self.db.aupdate_thumb(job.url, format_key, job.thumb)
             elif existing.thumb and not job.thumb:
                 job.thumb = existing.thumb
             # Genres may be a list of {name, slug, url} dicts (fresh from the
@@ -105,13 +121,13 @@ class Engine(QObject):
             # to the flat list shape before storing / comparing.
             if not existing.genres and job.genres:
                 job.genres = self._normalize_genres(job.genres)
-                await self.db.aupdate_genres(job.url, job.genres)
+                await self.db.aupdate_genres(job.url, format_key, job.genres)
             elif existing.genres and not job.genres:
                 job.genres = self._normalize_genres(existing.genres)
             # Keep the site_id already on record unless the GUI explicitly
             # supplied a new one (e.g. user re-added the job picking a site).
             if not existing.site_id and job.site_id:
-                self.db.update_site_id(job.url, job.site_id)
+                self.db.update_site_id(job.url, format_key, job.site_id)
             elif existing.site_id and not job.site_id:
                 job.site_id = existing.site_id
         else:
@@ -123,12 +139,12 @@ class Engine(QObject):
             return "already_queued"
 
         if status == "paused":
-            self.db.update_status(job.url, "waiting")
+            self.db.update_status(job.url, format_key, "waiting")
             await self.queue.put(job)
             return "resume"
 
         if status == "done" or status == "done_with_missing":
-            self.db.update_status(job.url, "waiting")
+            self.db.update_status(job.url, format_key, "waiting")
             await self.queue.put(job)
             if self.has_local_data(job):
                 return "resume"
@@ -141,21 +157,27 @@ class Engine(QObject):
         await self.queue.put(job)
         return "queued"
 
-    async def del_job(self, url: str) -> bool:
+    @staticmethod
+    def _job_key(job) -> tuple:
+        """Identity of a job inside its session DB: (url, format_key)."""
+        return (job.url, job.format_key)
+
+    async def del_job(self, url: str, format_key: str) -> bool:
         """Delete a job entirely: drop it from the queue if it's still
         'waiting', flag it so an in-progress worker stops early, and remove
         its record from the DB.
 
         Returns True if the job existed anywhere (queue, active, or DB).
         """
-        existing = self.db.get_job(url)
+        existing = self.db.get_job(url, format_key)
+        key = (url, format_key)
 
         # Remove it from the queue if it's just sitting there "waiting"
         was_queued = False
         pending = []
         while not self.queue.empty():
             job = self.queue.get_nowait()
-            if job.url == url:
+            if self._job_key(job) == key:
                 was_queued = True
                 continue
             pending.append(job)
@@ -164,16 +186,98 @@ class Engine(QObject):
 
         # If it's currently being downloaded, flag it so the worker bails
         # out at the next chapter boundary instead of finishing the job.
-        was_running = url in self.active_jobs
+        was_running = key in self.active_jobs
         if was_running:
-            self.deleted_urls.add(url)
-            self.active_jobs.pop(url, None)
+            self.deleted_urls.add(key)
+            self.active_jobs.pop(key, None)
 
         # Remove the DB record, if any
         if existing:
-            await self.db.adelete(url)
+            await self.db.adelete(url, format_key)
 
         return bool(existing or was_queued or was_running)
+
+    # ------------------------------------------------------------------
+    # SESSIONS
+    # ------------------------------------------------------------------
+
+    def list_sessions(self):
+        """Every registered session (registry order)."""
+        return self.session_store.list()
+
+    def rename_session(self, session_id: str, name: str):
+        """Rename a session (registry only — the DB file name never changes)."""
+        self.session_store.rename(session_id, name)
+
+    def _load_db(self, session_id: str):
+        """Point the engine at another session's database."""
+        if getattr(self, "db", None) is not None:
+            self.db.close()
+        self.session_id = session_id
+        self.db = JobManager(session_db_path(session_id))
+
+    async def activate_session(self, session_id):
+        """Switch to ``session_id`` and return all of its jobs.
+
+        Callers must stop the engine first. Unfinished jobs are re-queued and
+        marked 'waiting'; finished ("done") jobs are returned so the UI can
+        still show them, but they are not enqueued again.
+        """
+        if self.running:
+            raise RuntimeError("cannot switch session while the engine is running")
+
+        self.session_store.set_current(session_id)
+        self._load_db(session_id)
+
+        # Reset the in-memory queue/state for the new session.
+        self.queue = asyncio.Queue()
+        self.active_jobs.clear()
+        self.deleted_urls.clear()
+
+        jobs = self.db.all_jobs()
+        for job in jobs:
+            if (job.status or "waiting") == "done":
+                continue
+            self.db.update_status(job.url, job.format_key, "waiting")
+            job.status = "waiting"
+            await self.queue.put(job)
+        return jobs
+
+    async def create_session(self, name: str = None):
+        """Create a fresh empty session and switch to it."""
+        info = self.session_store.create(name)
+        return await self.activate_session(info.id)
+
+    async def delete_session(self, session_id):
+        """Delete a session: registry entry + database + scratch folder.
+
+        When the current session is deleted, another one is opened (or an empty
+        one created) and its jobs are returned; otherwise returns None.
+        """
+        if self.running:
+            raise RuntimeError("cannot delete a session while the engine is running")
+
+        was_current = self.session_store.remove(session_id)
+        delete_session_files(session_id)
+        delete_session_scratch(session_id)
+
+        if was_current:
+            info = self.session_store.ensure_current()
+            return await self.activate_session(info.id)
+        return None
+
+    async def delete_all_sessions(self):
+        """Remove every session, then open a fresh empty one."""
+        if self.running:
+            raise RuntimeError("cannot delete sessions while the engine is running")
+
+        for info in list(self.session_store.list()):
+            self.session_store.remove(info.id)
+            delete_session_files(info.id)
+            delete_session_scratch(info.id)
+
+        info = self.session_store.create()
+        return await self.activate_session(info.id)
 
     async def start(self):
         """Mark the engine as running and kick off the worker pool in the
@@ -230,7 +334,7 @@ class Engine(QObject):
         if active_jobs:
             # Update the DB once instead of updating each job individually
             self.db.update_status_bulk(
-                [job.url for job in active_jobs], "paused"
+                [self._job_key(job) for job in active_jobs], "paused"
             )
 
             # Put the job back into the queue to preserve the current logic
@@ -266,9 +370,9 @@ class Engine(QObject):
 
                 if job.save_path != new_path:
                     job.save_path = new_path
-                    self.db.update_save_path(job.url, job.save_path)
+                    self.db.update_save_path(job.url, job.format_key, job.save_path)
 
-            self.db.update_status(job.url, "waiting")
+            self.db.update_status(job.url, job.format_key, "waiting")
 
             await self.queue.put(job)
 
@@ -290,7 +394,7 @@ class Engine(QObject):
             new_path = Path(base_path) / safe_filename(job.title)
             if job.save_path != new_path:
                 job.save_path = new_path
-                self.db.update_save_path(job.url, job.save_path)
+                self.db.update_save_path(job.url, job.format_key, job.save_path)
             pending.append(job)
 
         for job in pending:
@@ -306,8 +410,8 @@ class Engine(QObject):
             # Skip jobs that were deleted while still sitting in the queue
             # (del_job already dropped them from self.queue, but this guards
             # against any edge case where one slips through).
-            if job.url in self.deleted_urls:
-                self.deleted_urls.discard(job.url)
+            if self._job_key(job) in self.deleted_urls:
+                self.deleted_urls.discard(self._job_key(job))
                 self.queue.task_done()
                 continue
 
@@ -318,7 +422,7 @@ class Engine(QObject):
                 try:
                     auth_manager.ensure_logged_in(job.site_id, job.url)
                 except AuthError:
-                    await self.db.aupdate_status(job.url, "paused")
+                    await self.db.aupdate_status(job.url, job.format_key, "paused")
                     self.progress.emit(job.title, "Login required")
                     self.login_required.emit(job.title, job.url, job.site_id)
                     logger.warning(
@@ -327,20 +431,21 @@ class Engine(QObject):
                     self.queue.task_done()
                     continue
 
-            self.active_jobs[job.url] = job
+            key = self._job_key(job)
+            self.active_jobs[key] = job
             try:
-                await self.db.aupdate_status(job.url, "running")
+                await self.db.aupdate_status(job.url, job.format_key, "running")
                 logger.info(f"[W{wid}] {job.title}")
 
                 outcome, used = await self._download_with_fallback(job)
-                await self.db.aupdate_engine(job.url, used)
+                await self.db.aupdate_engine(job.url, job.format_key, used)
 
                 if outcome.status == DELETED:
                     # Job was removed by the user mid-download; its DB record
                     # is already gone, so there's nothing left to update.
                     logger.info(f"[{job.title}] Skipped finishing — job was deleted.")
                 elif outcome.status == FAILED:
-                    await self.db.aupdate_status(job.url, "failed")
+                    await self.db.aupdate_status(job.url, job.format_key, "failed")
                     self.progress.emit(job.title, "Failed")
                     logger.warning(
                         f"[{job.title}] Download failed, marking Failed."
@@ -358,7 +463,7 @@ class Engine(QObject):
             except AuthError as e:
                 # Session expired mid-run (e.g. cookie invalidated by the site).
                 # Pause and ask the GUI to re-authenticate, same as the pre-check above.
-                await self.db.aupdate_status(job.url, "paused")
+                await self.db.aupdate_status(job.url, job.format_key, "paused")
                 self.progress.emit(job.title, "Login required")
                 self.login_required.emit(job.title, job.url, job.site_id or "")
                 logger.warning(f"[{job.title}] Session expired mid-run: {e}")
@@ -367,11 +472,11 @@ class Engine(QObject):
                 logger.error(
                     f"ERROR processing job [{job.title}]: {e}", exc_info=True
                 )
-                await self.db.aupdate_status(job.url, "failed")
+                await self.db.aupdate_status(job.url, job.format_key, "failed")
                 self.progress.emit(job.title, "Failed")
 
             finally:
-                self.active_jobs.pop(job.url, None)
+                self.active_jobs.pop(key, None)
                 self.queue.task_done()
 
     def has_local_data(self, job):
@@ -445,11 +550,11 @@ class Engine(QObject):
             job.referer = meta.referer
 
         if job.chapters:
-            await self.db.aupdate_chapters(job.url, job.chapters)
+            await self.db.aupdate_chapters(job.url, job.format_key, job.chapters)
         if job.thumb:
-            await self.db.aupdate_thumb(job.url, job.thumb)
+            await self.db.aupdate_thumb(job.url, job.format_key, job.thumb)
         if job.genres:
-            await self.db.aupdate_genres(job.url, job.genres)
+            await self.db.aupdate_genres(job.url, job.format_key, job.genres)
 
     async def _download_with_fallback(self, job):
         """Run the job on its backend, falling back once to the other.
@@ -463,7 +568,7 @@ class Engine(QObject):
         last_error = None
         for attempt, (name, backend) in enumerate(plan):
             if attempt > 0:
-                await self.db.aupdate_engine_fallback_used(job.url, True)
+                await self.db.aupdate_engine_fallback_used(job.url, job.format_key, True)
                 logger.warning(f"[{job.title}] Falling back to engine '{name}'")
 
             try:
@@ -473,7 +578,7 @@ class Engine(QObject):
                 raise
             except BackendError as e:
                 last_error = e
-                await self.db.aupdate_engine_error(job.url, str(e))
+                await self.db.aupdate_engine_error(job.url, job.format_key, str(e))
                 if attempt + 1 < len(plan) and selector.fallback_allowed(e.code, name):
                     continue
                 raise
@@ -485,7 +590,7 @@ class Engine(QObject):
                     await self._build_chapter_pdfs(job)
                 return outcome, name
 
-            await self.db.aupdate_engine_error(job.url, "download failed")
+            await self.db.aupdate_engine_error(job.url, job.format_key, "download failed")
 
         raise last_error or BackendError("download failed")
 
@@ -516,8 +621,8 @@ class Engine(QObject):
         for chap_index, chap in enumerate(chapters, 1):
             # The user deleted this job while it was mid-download: stop
             # immediately, don't touch the DB again (record is already gone).
-            if job.url in self.deleted_urls:
-                self.deleted_urls.discard(job.url)
+            if self._job_key(job) in self.deleted_urls:
+                self.deleted_urls.discard(self._job_key(job))
                 logger.info(f"[{job.title}] Job deleted by user, stopping download.")
                 return "deleted", False, {}
 
@@ -525,7 +630,7 @@ class Engine(QObject):
                 continue
 
             job.current_chap = chap_index
-            await self.db.aupdate_current_chap(job.url, chap_index)
+            await self.db.aupdate_current_chap(job.url, job.format_key, chap_index)
 
             chap_folder_name = f"{chap_index:04d} - {safe_filename(chap['title'])}"
             chap_path = job.save_path / chap_folder_name
@@ -745,8 +850,8 @@ class Engine(QObject):
 
     async def finish_job(self, job, missing=False, missing_details=None):
         if missing:
-            await self.db.aupdate_status(job.url, "done_with_missing")
-            await self.db.areset_current_chap(job.url)
+            await self.db.aupdate_status(job.url, job.format_key, "done_with_missing")
+            await self.db.areset_current_chap(job.url, job.format_key)
 
             missing_details = missing_details or {}
             total_missing = sum(len(urls) for urls in missing_details.values())
@@ -761,11 +866,11 @@ class Engine(QObject):
 
             self.progress.emit(job.title, "Done with missing images")
             return
-        await self.db.aupdate_status(job.url, "done")
+        await self.db.aupdate_status(job.url, job.format_key, "done")
         # Nothing left to resume on a finished job: clear the resume point so
         # re-adding the story later runs a full pass from chapter 1 again
         # (verify_chapter then re-downloads any chapter the user deleted).
-        await self.db.areset_current_chap(job.url)
+        await self.db.areset_current_chap(job.url, job.format_key)
         logger.info(f"DONE: {job.title}")
         self.progress.emit(job.title, "Done")
 
@@ -775,7 +880,7 @@ class Engine(QObject):
 
         while not self.queue.empty():
             job = self.queue.get_nowait()
-            self.db.update_status(job.url, "paused")
+            self.db.update_status(job.url, job.format_key, "paused")
             paused_urls.append(job.url)
             temp.append(job)
 

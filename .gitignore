@@ -71,6 +71,7 @@ ms-playwright/
 
 tmp/
 temp/
+.temp/
 *.tmp
 *.temp
 

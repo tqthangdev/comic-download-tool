@@ -8,9 +8,9 @@ from gui import theme
 
 
 class QueueDelegate(QStyledItemDelegate):
-    # Emits the job url when the user clicks the trash icon,
-    # so somewhere else (MainWindow) can actually call engine.del_job(url).
-    deleteRequested = pyqtSignal(str)
+    # Emits the job (url, format_key) when the user clicks the trash icon,
+    # so somewhere else (MainWindow) can actually call engine.del_job(...).
+    deleteRequested = pyqtSignal(str, str)
 
     # Height of one row: enough for the two stacked lines (name + status).
     ROW_HEIGHT = 46
@@ -222,13 +222,14 @@ class QueueDelegate(QStyledItemDelegate):
                 if trash_rect.contains(event.pos()):
                     data = index.data(Qt.ItemDataRole.UserRole)
                     job_url = data.get("url") if data else None
+                    format_key = data.get("format_key") if data else None
 
                     if job_url:
                         # Do not removeRow here: MainWindow listens for
-                        # deleteRequested, calls engine.del_job(url) and only
-                        # then removes the item from the queue list once the
-                        # DB record is gone.
-                        self.deleteRequested.emit(job_url)
+                        # deleteRequested, calls engine.del_job(url, format_key)
+                        # and only then removes the item from the queue list
+                        # once the DB record is gone.
+                        self.deleteRequested.emit(job_url, format_key)
                     return True
 
         return super().editorEvent(event, model, option, index)

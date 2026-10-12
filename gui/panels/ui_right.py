@@ -23,8 +23,8 @@ class RightPanel(QWidget):
     """
 
     # Emitted when the user clicks the trash icon on a job in the queue list.
-    # MainWindow connects this signal to call engine.del_job(url).
-    deleteRequested = pyqtSignal(str)
+    # MainWindow connects this signal to call engine.del_job(url, format_key).
+    deleteRequested = pyqtSignal(str, str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -94,13 +94,13 @@ class RightPanel(QWidget):
         else:
             self.queue_group.setTitle(tr("queue"))
 
-    def exists_in_queue(self, url):
+    def exists_in_queue(self, url, format_key):
         result = {"exists": False, "data": None}
         for i in range(self.queue_list.count()):
             item = self.queue_list.item(i)
             data = item.data(Qt.ItemDataRole.UserRole)
 
-            if data["url"] == url:
+            if data["url"] == url and data.get("format_key") == format_key:
                 result["exists"] = True
                 result["data"] = data
                 return result
@@ -108,7 +108,8 @@ class RightPanel(QWidget):
         return result
 
     def add_queue_item(self, job, status="Waiting"):
-        result = self.exists_in_queue(job.url)
+        format_key = self._format_key(job)
+        result = self.exists_in_queue(job.url, format_key)
         if result["exists"]:
             return
 
@@ -125,6 +126,7 @@ class RightPanel(QWidget):
                 "chapters": job.chapters,
                 "referer": job.referer,
                 "convert_to_pdf": self._job_pdf(job),
+                "format_key": format_key,
             }
         )
         self._apply_error_tooltip(item, job)
@@ -142,6 +144,11 @@ class RightPanel(QWidget):
         return bool(value)
 
     @staticmethod
+    def _format_key(job) -> str:
+        """(url, format_key) identity component; mirrors JobManager."""
+        return "pdf" if RightPanel._job_pdf(job) else "image"
+
+    @staticmethod
     def _apply_error_tooltip(item, job):
         """Tooltip with the job's last error (the backend that produced it is
         deliberately not named — it is only logged)."""
@@ -149,7 +156,8 @@ class RightPanel(QWidget):
         item.setToolTip(error or "")
 
     def update_queue_item(self, url, job, status):
-        result = self.exists_in_queue(job.url)
+        format_key = self._format_key(job)
+        result = self.exists_in_queue(job.url, format_key)
         if not result["exists"]:
             self.add_queue_item(job, status)
             return
@@ -157,7 +165,7 @@ class RightPanel(QWidget):
         for i in range(self.queue_list.count()):
             item = self.queue_list.item(i)
             data = item.data(Qt.ItemDataRole.UserRole)
-            if data["url"] != job.url:
+            if data["url"] != job.url or data.get("format_key") != format_key:
                 continue
             data["status"] = status
             data["convert_to_pdf"] = self._job_pdf(job)
@@ -178,13 +186,13 @@ class RightPanel(QWidget):
                 self.queue_list.viewport().update()
                 return
 
-    def remove_queue_item(self, url):
-        """Remove the item with the given url from the queue list, if present."""
+    def remove_queue_item(self, url, format_key):
+        """Remove the item with the given (url, format_key) from the list."""
         for i in range(self.queue_list.count()):
             item = self.queue_list.item(i)
             data = item.data(Qt.ItemDataRole.UserRole)
 
-            if data and data.get("url") == url:
+            if data and data.get("url") == url and data.get("format_key") == format_key:
                 self.queue_list.takeItem(i)
                 self._update_queue_group()
                 return

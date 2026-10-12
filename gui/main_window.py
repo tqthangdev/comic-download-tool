@@ -115,6 +115,7 @@ class MainWindow(QWidget):
         self.setLayout(root)
 
         self._build_menu()
+        self._update_session_label()
 
         # ================= EVENTS =================
         self.left.btn_paste.clicked.connect(self.on_paste_url)
@@ -168,7 +169,28 @@ class MainWindow(QWidget):
         add("menu_import_file", self.import_file, "Ctrl+I")
         add("menu_export_queue", self.export_queue, "Ctrl+P")
         menu.addSeparator()
-        add("menu_settings", self.left.open_settings, "Ctrl+S")
+
+        # Sessions submenu: New / List (switch) / Manage
+        sessions_menu = menu.addMenu(tr("menu_sessions"))
+        act_new = QAction(tr("menu_session_new"), self)
+        act_new.setShortcut("Ctrl+N")
+        act_new.triggered.connect(self.new_session)
+        sessions_menu.addAction(act_new)
+
+        list_menu = sessions_menu.addMenu(tr("menu_session_list"))
+        for info in self.engine.list_sessions():
+            act = QAction(info.name, self)
+            act.setCheckable(True)
+            act.setChecked(info.id == self.engine.session_id)
+            act.triggered.connect(
+                lambda _checked=False, sid=info.id: self._on_menu_select_session(sid)
+            )
+            list_menu.addAction(act)
+
+        act_manage = QAction(tr("menu_session_manage"), self)
+        act_manage.setShortcut("Ctrl+M")
+        act_manage.triggered.connect(self.open_sessions)
+        sessions_menu.addAction(act_manage)
 
         # Language submenu
         language_menu = menu.addMenu(tr("menu_language"))
@@ -200,6 +222,8 @@ class MainWindow(QWidget):
             theme_group.addAction(act)
             theme_menu.addAction(act)
 
+        # Settings / Version / About / Quit
+        add("menu_settings", self.left.open_settings, "Ctrl+S")
         menu.addSeparator()
         add("menu_version", self.left.open_version)
         add("menu_about", self.left.open_about)
@@ -272,7 +296,106 @@ class MainWindow(QWidget):
                 f"{tr('export_queue_failed')}:\n{e}",
             )
 
+    # =========================
+    # SESSIONS
+    # =========================
+    def _confirm(self, title: str, text: str) -> bool:
+        box = QMessageBox(self)
+        box.setWindowTitle(title)
+        box.setText(text)
+        box.setIcon(QMessageBox.Icon.Question)
+        btn_yes = box.addButton(tr("yes"), QMessageBox.ButtonRole.YesRole)
+        btn_no = box.addButton(tr("no"), QMessageBox.ButtonRole.NoRole)
+        box.setDefaultButton(btn_no)
+        box.exec()
+        return box.clickedButton() is btn_yes
+
+    def _on_session_changed(self):
+        """Refresh everything that depends on the current session."""
+        self._update_session_label()
+        self._build_menu()
+        self._update_pause_button()
+
+    def _update_session_label(self):
+        info = self.engine.session_store.get(self.engine.session_id)
+        self.left.set_session_name(info.name if info else "")
+
+    def _repopulate_queue(self, jobs):
+        """Rebuild the queue list from a session's jobs (used after a switch)."""
+        self.right.queue_list.clear()
+        for job in jobs:
+            label = self._RESTORE_STATUS_LABELS.get((job.status or "").lower(), "")
+            self.right.add_queue_item(job, label)
+        self.right._update_queue_group()
+        self.right.queue_list.viewport().update()
+
+    @asyncSlot()
+    async def new_session(self):
+        """Create a fresh empty session and switch to it."""
+        if self.engine.running:
+            await self.engine.stop()
+        jobs = await self.engine.create_session()
+        self._repopulate_queue(jobs)
+        self._on_session_changed()
+
+    def _on_menu_select_session(self, session_id):
+        """Menu [List] item: confirm, then switch (same prompt as the dialog)."""
+        if session_id == self.engine.session_id:
+            return
+        info = self.engine.session_store.get(session_id)
+        name = info.name if info else session_id
+        if not self._confirm(
+            tr("session_select_confirm_title"),
+            tr("session_select_confirm_text").format(name=name),
+        ):
+            return
+        self.select_session(session_id)
+
+    @asyncSlot(str)
+    async def select_session(self, session_id):
+        """Switch the queue to `session_id` (stops the engine first)."""
+        if session_id == self.engine.session_id:
+            return
+        if self.engine.running:
+            await self.engine.stop()
+        jobs = await self.engine.activate_session(session_id)
+        self._repopulate_queue(jobs)
+        self._on_session_changed()
+
+    @asyncSlot(str)
+    async def remove_session(self, session_id):
+        """Delete a session (DB + scratch); the dialog has already confirmed."""
+        if self.engine.running:
+            await self.engine.stop()
+        jobs = await self.engine.delete_session(session_id)
+        if jobs is not None:
+            self._repopulate_queue(jobs)
+        self._on_session_changed()
+
+    @asyncSlot()
+    async def remove_all_sessions(self):
+        if self.engine.running:
+            await self.engine.stop()
+        jobs = await self.engine.delete_all_sessions()
+        self._repopulate_queue(jobs)
+        self._on_session_changed()
+
+    def open_sessions(self):
+        from gui.dialogs.session_dialog import SessionDialog
+
+        dialog = SessionDialog(self.engine, self)
+        dialog.newRequested.connect(self.new_session)
+        dialog.selectRequested.connect(self.select_session)
+        dialog.removeRequested.connect(self.remove_session)
+        dialog.removeAllRequested.connect(self.remove_all_sessions)
+        dialog.exec()
+
     def _start_restore(self):
+        # Ask up front whether to bring the current session's queue back.
+        if not self._ask_restore():
+            asyncio.ensure_future(self._start_fresh_session())
+            return
+
         self.restore_modal = RestoreDialog(self)
 
         self.restore_modal.show()
@@ -282,6 +405,23 @@ class MainWindow(QWidget):
             0,
             self._run_restore
         )
+
+    def _ask_restore(self) -> bool:
+        box = QMessageBox(self)
+        box.setWindowTitle(tr("restore_ask_title"))
+        box.setText(tr("restore_ask_text"))
+        box.setIcon(QMessageBox.Icon.Question)
+        btn_yes = box.addButton(tr("yes"), QMessageBox.ButtonRole.YesRole)
+        btn_no = box.addButton(tr("no"), QMessageBox.ButtonRole.NoRole)
+        box.setDefaultButton(btn_yes)
+        box.exec()
+        return box.clickedButton() is btn_yes
+
+    async def _start_fresh_session(self):
+        """Startup choice "No": open a brand new empty session."""
+        jobs = await self.engine.create_session()
+        self._repopulate_queue(jobs)
+        self._on_session_changed()
 
 
     def _run_restore(self):
@@ -314,6 +454,7 @@ class MainWindow(QWidget):
     def _retranslate(self):
         self.setWindowTitle(tr("app_title"))
         self._build_menu()
+        self._update_session_label()
         self.left.retranslate()
         self.right.retranslate()
         self._update_pause_button()
@@ -764,9 +905,10 @@ class MainWindow(QWidget):
         if not site_id or not prompt_login(self, default_site=site_id):
             return  # user cancelled — job stays "paused" in the DB, can resume later
 
-        job = self.engine.db.get_job(url)
-        if job:
+        jobs = self.engine.db.get_jobs_by_url(url)
+        for job in jobs:
             asyncio.ensure_future(self.engine.add_job(job))
+        if jobs:
             self._update_pause_button()
 
     # =========================
@@ -978,21 +1120,21 @@ class MainWindow(QWidget):
     # =========================
     # DELETE JOB (TRASH ICON)
     # =========================
-    @asyncSlot(str)
-    async def delete_job(self, url: str):
+    @asyncSlot(str, str)
+    async def delete_job(self, url: str, format_key: str):
         """Xóa job hoàn toàn: khỏi queue/active, khỏi DB, khỏi queue list.
 
         Được gọi từ nút thùng rác (RightPanel.deleteRequested).
         """
         try:
-            removed = await self.engine.del_job(url)
+            removed = await self.engine.del_job(url, format_key)
 
             if removed:
-                self.right.remove_queue_item(url)
+                self.right.remove_queue_item(url, format_key)
                 self._update_pause_button()
             else:
                 # Job is no longer in the DB/queue -> just clean up any leftover UI item
-                self.right.remove_queue_item(url)
+                self.right.remove_queue_item(url, format_key)
         except Exception as e:
             logger.error(f"Failed to delete job {url}: {e}", exc_info=True)
             self._show_message(
