@@ -320,9 +320,15 @@ class MainWindow(QWidget):
         self.left.set_session_name(info.name if info else "")
 
     def _repopulate_queue(self, jobs):
-        """Rebuild the queue list from a session's jobs (used after a switch)."""
+        """Rebuild the queue list from a session's jobs.
+
+        Used when opening/switching a session: finished ("done") jobs are not
+        listed — only the ones that still have work to do.
+        """
         self.right.queue_list.clear()
         for job in jobs:
+            if (job.status or "").lower() == "done":
+                continue
             label = self._RESTORE_STATUS_LABELS.get((job.status or "").lower(), "")
             self.right.add_queue_item(job, label)
         self.right._update_queue_group()
