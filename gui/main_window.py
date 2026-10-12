@@ -28,7 +28,7 @@ from gui.panels.ui_right import RightPanel
 from gui.panels.preview_chapter import THUMBNAIL_SIZE
 from gui.dialogs.restore_dialog import RestoreDialog
 from gui.dialogs.login_dialog import prompt_login
-from gui.cursor_utils import apply_pointer_cursors
+from gui.widgets import apply_pointer_cursors
 from gui import theme
 from core.logger import logger
 from core.i18n import tr, add_listener, set_lang, get_lang

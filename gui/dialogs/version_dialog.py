@@ -29,7 +29,7 @@ from core.logger import logger
 from core.updater.checker import UpdateError, check_for_update
 from core.updater.installer import InstallError, prepare_update, spawn_updater
 from core.updater.version import display_version
-from gui.cursor_utils import apply_pointer_cursors
+from gui.widgets import apply_pointer_cursors
 
 
 class VersionDialog(QDialog):

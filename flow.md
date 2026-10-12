@@ -52,16 +52,18 @@ comic-download-tool/
 ├── gui/                    # PyQt6 UI
 │   ├── main_window.py      # MainWindow: menu bar, paste/load/add/start, restore, shutdown
 │   ├── panels/             #   Main-window panels
-│   │   ├── ui_left.py      #     LeftPanel (URL, path, options, Add Queue) + Settings/Help/About
+│   │   ├── ui_left.py      #     LeftPanel (URL, path, options, Add Queue)
 │   │   ├── preview_chapter.py #  Preview: cover + title, output format, chapter tree
 │   │   ├── ui_right.py     #     RightPanel (queue list, start/pause/resume/clear buttons)
 │   │   └── queue_delegate.py #   Queue row painting (progress, trash button)
 │   ├── dialogs/            #   Modal dialogs
+│   │   ├── about_dialog.py     # About modal
 │   │   ├── add_jobs_dialog.py  # Progress modal while importing links from a file
 │   │   ├── restore_dialog.py   # Progress modal while restoring the previous session
 │   │   ├── login_dialog.py     # Login prompt (prompt_login)
+│   │   ├── setting_dialog.py   # Settings modal (edits config.json)
 │   │   └── version_dialog.py   # Version/update modal
-│   ├── cursor_utils.py     # Pointer/forbidden cursors (QSS cannot set cursor)
+│   ├── widgets.py          # Shared widget helpers (make_radio_button/checkbox, cursors)
 │   └── theme.py            # ALL QSS lives here: palette-driven light/dark, one app-wide sheet
 │
 ├── assets/                 # Icons and UI chrome
