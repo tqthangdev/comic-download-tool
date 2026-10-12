@@ -401,6 +401,12 @@ class MainWindow(QWidget):
         dialog.exec()
 
     def _start_restore(self):
+        # Nothing pending to bring back (empty or all done) -> skip the prompt
+        # and just open the current session as it is.
+        if not self.engine.has_restorable_jobs():
+            asyncio.ensure_future(self._load_current_session())
+            return
+
         # Ask up front whether to bring the current session's queue back.
         if not self._ask_restore():
             asyncio.ensure_future(self._start_fresh_session())
@@ -430,6 +436,12 @@ class MainWindow(QWidget):
     async def _start_fresh_session(self):
         """Startup choice "No": open a brand new empty session."""
         jobs = await self.engine.create_session()
+        self._repopulate_queue(jobs)
+        self._on_session_changed()
+
+    async def _load_current_session(self):
+        """No prompt needed: open the current session and show its jobs."""
+        jobs = await self.engine.activate_session(self.engine.session_id)
         self._repopulate_queue(jobs)
         self._on_session_changed()
 

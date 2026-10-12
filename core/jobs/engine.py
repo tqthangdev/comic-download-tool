@@ -359,6 +359,14 @@ class Engine(QObject):
                 pass
             self._run_task = None
 
+    def has_restorable_jobs(self) -> bool:
+        """True when the current session has unfinished jobs to bring back.
+
+        Used at startup to skip the "restore session?" prompt when there is
+        nothing to restore (empty queue, or every job already done).
+        """
+        return bool(self.db.get_restorable_jobs())
+
     async def restore_session(self, base_path: str = None):
         """Restore incomplete jobs from the previous session."""
         jobs = self.db.get_restorable_jobs()
