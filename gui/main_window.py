@@ -361,23 +361,29 @@ class MainWindow(QWidget):
         self._repopulate_queue(jobs)
         self._on_session_changed()
 
-    @asyncSlot(str)
-    async def remove_session(self, session_id):
-        """Delete a session (DB + scratch); the dialog has already confirmed."""
+    async def remove_session(self, session_id, dialog=None):
+        """Delete a session (DB + scratch); the dialog has already confirmed.
+
+        When called from the session dialog, it reloads in place instead of
+        closing, so several sessions can be removed in one go.
+        """
         if self.engine.running:
             await self.engine.stop()
         jobs = await self.engine.delete_session(session_id)
         if jobs is not None:
             self._repopulate_queue(jobs)
         self._on_session_changed()
+        if dialog is not None:
+            dialog.reload()
 
-    @asyncSlot()
-    async def remove_all_sessions(self):
+    async def remove_all_sessions(self, dialog=None):
         if self.engine.running:
             await self.engine.stop()
         jobs = await self.engine.delete_all_sessions()
         self._repopulate_queue(jobs)
         self._on_session_changed()
+        if dialog is not None:
+            dialog.reload()
 
     def open_sessions(self):
         from gui.dialogs.session_dialog import SessionDialog
@@ -385,8 +391,13 @@ class MainWindow(QWidget):
         dialog = SessionDialog(self.engine, self)
         dialog.newRequested.connect(self.new_session)
         dialog.selectRequested.connect(self.select_session)
-        dialog.removeRequested.connect(self.remove_session)
-        dialog.removeAllRequested.connect(self.remove_all_sessions)
+        # Removal keeps the dialog open and refreshes its list.
+        dialog.removeRequested.connect(
+            lambda sid: asyncio.ensure_future(self.remove_session(sid, dialog))
+        )
+        dialog.removeAllRequested.connect(
+            lambda: asyncio.ensure_future(self.remove_all_sessions(dialog))
+        )
         dialog.exec()
 
     def _start_restore(self):

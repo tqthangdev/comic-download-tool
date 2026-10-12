@@ -285,7 +285,7 @@ class SessionDialog(QDialog):
         ):
             return
         self.removeRequested.emit(session_id)
-        self.accept()
+        # Stay open: the caller reloads the list once the deletion completes.
 
     def _on_remove_all(self):
         if not self._confirm(
@@ -294,7 +294,7 @@ class SessionDialog(QDialog):
         ):
             return
         self.removeAllRequested.emit()
-        self.accept()
+        # Stay open: the caller reloads the list once the deletion completes.
 
     def _confirm(self, title: str, text: str) -> bool:
         box = QMessageBox(self)
