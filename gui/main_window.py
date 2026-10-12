@@ -821,6 +821,14 @@ class MainWindow(QWidget):
             )
             return
 
+        # Importing a file queues many jobs at once: with "Auto convert to PDF"
+        # on, every one of them would be converted — confirm first.
+        if CONFIG.get("convert_to_pdf", False) and not self._confirm(
+            tr("import_pdf_warning_title"),
+            tr("import_pdf_warning_text"),
+        ):
+            return
+
         from gui.dialogs.add_jobs_dialog import AddJobsDialog
 
         modal = AddJobsDialog(self)
