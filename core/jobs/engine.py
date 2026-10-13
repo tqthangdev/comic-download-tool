@@ -1,5 +1,6 @@
 import asyncio
 from pathlib import Path
+import shutil
 import traceback
 import aiohttp
 from PyQt6.QtCore import QObject, pyqtSignal
@@ -14,6 +15,7 @@ from core.sessions import (
     cleanup_scratch,
     delete_session_files,
     delete_session_scratch,
+    job_scratch_dir,
     session_db_path,
 )
 from core.utils import CONFIG, safe_filename
@@ -68,6 +70,10 @@ class Engine(QObject):
             {}
         )  # (url, format_key) -> currently running Job, for stop() to retrieve
         self._run_task = None  # background task created by start()
+        # True once the current run has set up its HTTP session and spawned the
+        # initial pool. Guards add_job()'s top-up from spawning a worker before
+        # the session the worker needs exists.
+        self._pool_ready = False
         # (url, format_key) the user asked to delete while a job was actively
         # downloading; checked by download_job() so it can bail out early
         # instead of finishing the whole job after the record was removed.
@@ -141,11 +147,13 @@ class Engine(QObject):
         if status == "paused":
             self.db.update_status(job.url, format_key, "waiting")
             await self.queue.put(job)
+            self._ensure_workers()
             return "resume"
 
         if status == "done" or status == "done_with_missing":
             self.db.update_status(job.url, format_key, "waiting")
             await self.queue.put(job)
+            self._ensure_workers()
             if self.has_local_data(job):
                 return "resume"
             else:
@@ -155,6 +163,7 @@ class Engine(QObject):
             self.db.add(job)
 
         await self.queue.put(job)
+        self._ensure_workers()
         return "queued"
 
     @staticmethod
@@ -289,6 +298,30 @@ class Engine(QObject):
         self.running = True
         self._run_task = asyncio.ensure_future(self._run_workers())
 
+    def _spawn_workers(self, count: int):
+        """Create ``count`` worker tasks and track them for the current run."""
+        for _ in range(count):
+            self.workers.append(asyncio.create_task(self.worker(len(self.workers))))
+
+    def _ensure_workers(self):
+        """Top the pool back up after a job is queued mid-run.
+
+        Workers exit as soon as the queue drains, so a run that began with a
+        single job collapses to a single worker. To let a job added later start
+        right away (instead of waiting for the current job to finish), spawn as
+        many workers as the queue needs, capped at ``max_workers``.
+        """
+        if not self.running or not self._pool_ready:
+            return
+        live = sum(1 for w in self.workers if not w.done())
+        missing = self.max_workers - live
+        if missing <= 0:
+            return
+        queued = self.queue.qsize()
+        wanted = min(missing, max(1, queued))
+        self._spawn_workers(wanted)
+        logger.info(f"Worker top-up: +{wanted} (live={live}, queued={queued}).")
+
     async def _run_workers(self):
         try:
             headers = {"User-Agent": CONFIG.get("user_agent", "")}
@@ -308,18 +341,28 @@ class Engine(QObject):
                 self.downloader.set_session(session)
                 self.crawler.set_http_session(session)
 
-                self.workers = [
-                    asyncio.create_task(self.worker(i))
-                    for i in range(self.max_workers)
-                ]
+                # Fresh pool for this run: workers drain the queue from the
+                # front (so a fresh Start/resume always begins at the head) and
+                # exit once it is empty. An empty pool is our "run finished"
+                # signal; add_job() tops the pool back up while it is alive.
+                self.workers.clear()
+                self._spawn_workers(self.max_workers)
+                self._pool_ready = True
 
-                # return_exceptions=True: cancelled workers (CancelledError) are
-                # gathered into the result instead of bubbling up and raising an
-                # "unhandled exception" from a background task.
-                await asyncio.gather(*self.workers, return_exceptions=True)
+                # Supervise until the whole pool has drained. Re-scan after each
+                # gather so workers spawned mid-run are awaited too.
+                while True:
+                    live = [w for w in self.workers if not w.done()]
+                    if not live:
+                        break
+                    # return_exceptions=True: cancelled workers (CancelledError)
+                    # are collected as results instead of bubbling up and raising
+                    # an "unhandled exception" from a background task.
+                    await asyncio.gather(*live, return_exceptions=True)
 
         finally:
             self.running = False
+            self._pool_ready = False
             self.workers.clear()
             self._run_task = None
             # Let the UI know the run ended (naturally or by error) so it can
@@ -337,12 +380,9 @@ class Engine(QObject):
                 [self._job_key(job) for job in active_jobs], "paused"
             )
 
-            # Put the job back into the queue to preserve the current logic
-            for i, job in enumerate(active_jobs):
-                await self.queue.put(job)
-
-                if i % 20 == 0:
-                    await asyncio.sleep(0)
+            # Re-queue the paused jobs at the FRONT so the next resume picks
+            # them back up before any job that was merely waiting its turn.
+            self._requeue_front(active_jobs)
 
         # Cancel workers
         for task in self.workers:
@@ -358,6 +398,21 @@ class Engine(QObject):
             except (asyncio.CancelledError, Exception):
                 pass
             self._run_task = None
+
+    def _requeue_front(self, jobs):
+        """Put ``jobs`` at the head of the queue, ahead of waiting ones.
+
+        Used when pausing: the jobs that were mid-download should be the first
+        picked up on resume, before jobs that had not started yet.
+        """
+        waiting = []
+        while not self.queue.empty():
+            waiting.append(self.queue.get_nowait())
+
+        for job in jobs:
+            self.queue.put_nowait(job)
+        for job in waiting:
+            self.queue.put_nowait(job)
 
     def has_restorable_jobs(self) -> bool:
         """True when the current session has unfinished jobs to bring back.
@@ -625,6 +680,19 @@ class Engine(QObject):
         has_failed = False
         has_missing = False
         missing_details = {}  # chapter title -> list of missing image urls
+        loop = asyncio.get_running_loop()
+
+        # Every engine stages its chapter downloads in the session's per-job
+        # scratch folder (".temp/<session>/<job_id>/") and moves each finished
+        # chapter into the save path — so removing a session also drops its
+        # scratch. Falls back to the save path directly when the job has no id
+        # yet (defensive).
+        staging = None
+        if job.id is not None:
+            staging = job_scratch_dir(self.session_id, job.id)
+            await loop.run_in_executor(
+                None, lambda: staging.mkdir(parents=True, exist_ok=True)
+            )
 
         for chap_index, chap in enumerate(chapters, 1):
             # The user deleted this job while it was mid-download: stop
@@ -642,6 +710,7 @@ class Engine(QObject):
 
             chap_folder_name = f"{chap_index:04d} - {safe_filename(chap['title'])}"
             chap_path = job.save_path / chap_folder_name
+            work_path = staging / chap_folder_name if staging else chap_path
 
             # In "Convert to PDF" mode the PDF is the finished artifact, so a
             # chapter that already has one is done — skip fetching its images.
@@ -659,7 +728,6 @@ class Engine(QObject):
             # images themselves are rendered through the site's wasm module).
             use_cuutruyen = cuutruyen.is_cuutruyen_url(chap["url"])
             if use_cuutruyen:
-                loop = asyncio.get_running_loop()
                 imgs = await loop.run_in_executor(
                     None, cuutruyen.fetch_pages, chap["url"]
                 )
@@ -683,7 +751,24 @@ class Engine(QObject):
                         f"'{legacy_path.name}': {e}"
                     )
 
+            # Already complete in the save path from a previous run.
             if self.verify_chapter(chap_path, len(imgs)):
+                if self.running:
+                    self.progress.emit(
+                        job.title,
+                        f"Downloading...({chap_index}/{total_chap}): 100%",
+                    )
+                continue
+
+            # A finished chapter left in scratch by an earlier run: just move it.
+            if (
+                staging
+                and work_path != chap_path
+                and self.verify_chapter(work_path, len(imgs))
+            ):
+                await loop.run_in_executor(
+                    None, self._move_chapter, work_path, chap_path
+                )
                 if self.running:
                     self.progress.emit(
                         job.title,
@@ -702,12 +787,19 @@ class Engine(QObject):
 
             if use_cuutruyen:
                 failed_urls, missing_urls = await cuutruyen.render_pages(
-                    imgs, chap_path, progress_callback
+                    imgs, work_path, progress_callback
                 )
             else:
                 failed_urls, missing_urls = await self.downloader.download_batch(
-                    imgs, chap_path, referer=referer, progress=progress_callback,
+                    imgs, work_path, referer=referer, progress=progress_callback,
                     site_id=job.site_id,
+                )
+
+            # Move the freshly downloaded chapter out of scratch into the save
+            # path (per chapter, so the finished folder shows up right away).
+            if staging and work_path != chap_path:
+                await loop.run_in_executor(
+                    None, self._move_chapter, work_path, chap_path
                 )
 
             if failed_urls:
@@ -722,6 +814,14 @@ class Engine(QObject):
                 logger.warning(
                     f"[{job.title}] Chapter {chap['title']}: {len(missing_urls)} missing images: {missing_urls}"
                 )
+
+        # Best-effort: drop the per-job scratch folder once nothing is left in
+        # it (rmdir only removes it when empty, so a partial is kept for resume).
+        if staging is not None:
+            try:
+                staging.rmdir()
+            except OSError:
+                pass
 
         return has_failed, has_missing, missing_details
 
@@ -833,6 +933,23 @@ class Engine(QObject):
                     f"Retry extract_images ({attempt + 1}/{retries}) due to error: {e}"
                 )
         raise last_err
+
+    @staticmethod
+    def _move_chapter(src: Path, dst: Path):
+        """Move a finished chapter folder from scratch into the save path.
+
+        Handles the cross-device case (shutil.move copies then deletes) and
+        merges into a pre-existing partial destination folder.
+        """
+        dst.mkdir(parents=True, exist_ok=True)
+        for item in list(src.iterdir()):
+            target = dst / item.name
+            if target.is_dir():
+                shutil.rmtree(target, ignore_errors=True)
+            elif target.exists():
+                target.unlink(missing_ok=True)
+            shutil.move(str(item), str(target))
+        shutil.rmtree(src, ignore_errors=True)
 
     def verify_chapter(self, path, total_images):
         """True when the chapter folder already holds every image it should.
